@@ -4,26 +4,11 @@ import { type FitAddon } from "xterm-addon-fit";
 
 import useRepositoryField from "./hooks/useRepositoryField";
 import Combobox from "./components/form/Combobox";
-import { SelectField } from "./components/form/fields";
 import useFormCache from "./hooks/useFormCache";
 import { PermalinkContext } from "./context/Permalink";
 import { ICustomOptionProps } from "./types/fields";
 
 const TOKEN_KEY = "jupytherhub-build-token";
-
-type BinderProviderId = "gh" | "gl" | "gist" | "zenodo" | "git";
-
-function makeProviderSpec(provider: BinderProviderId, repoId: string, ref: string) {
-  const safeRepo = (repoId || "").trim();
-  const safeRef = (ref || "HEAD").trim() || "HEAD";
-
-  // Zenodo doesn't use git refs like git providers do.
-  if (provider === "zenodo") {
-    return `${provider}/${safeRepo}`;
-  }
-
-  return `${provider}/${safeRepo}/${safeRef}`;
-}
 
 async function getApiToken () {
   const xsrfToken = (`; ${document.cookie}`).split("; _xsrf=").pop().split(";")[0];
@@ -54,20 +39,17 @@ async function getApiToken () {
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      note: `jupyterhub-fancy-profiles - binder build token`,
       expires_in: 3600,
+      note: "Created by Fancy Profiles for Build your Own Image"
     }),
+    credentials: "include"
   });
-
   const res = await tokenResponse.json();
-
-  // Store token in localStorage
   localStorage.setItem(TOKEN_KEY, JSON.stringify(res));
   return res.token;
 }
 
 async function buildImage(
-  provider: BinderProviderId,
   repo: string,
   ref: string,
   term: Terminal,
@@ -77,8 +59,7 @@ async function buildImage(
 
   // @ts-expect-error - v0.5.0 client types not available
   const { BinderRepository } = await import("@jupyterhub/binderhub-client/client.js");
-  const providerSpec = makeProviderSpec(provider, repo, ref);
-
+  const providerSpec = "gh/" + repo + "/" + ref;
   // FIXME: Assume the binder api is available in the same hostname, under /services/binder/
   const buildEndPointURL = new URL(
     "/services/binder/build/",
@@ -94,7 +75,6 @@ async function buildImage(
       buildOnly: true,
     }
   );
-
   // Clear the last line written, so we start from scratch
   term.write("\x1b[2K\r");
   term.resize(66, 16);
@@ -104,65 +84,72 @@ async function buildImage(
     // Write message to the log terminal if there is a message
     if (data.message !== undefined) {
       // Write out all messages to the terminal!
-      term.write(data.message.replace(/\n/g, "\r\n"));
+      term.write(data.message);
+      // Resize our terminal to make sure it fits messages appropriately
       fitAddon.fit();
+    } else {
+      console.log(data);
     }
 
-    // If we have a phase and it's ready, this is a successful build!
-    if (data.phase === "ready") {
-      return data.imageName;
-    }
-
-    // If we have a phase and it failed, raise an error so we show it to the user
-    if (data.phase === "failed") {
-      throw new Error("Build failed.");
+    switch (data.phase) {
+      case "failed": {
+        image.close();
+        return Promise.reject();
+      }
+      case "ready": {
+        // Close the EventStream when the image has been built
+        image.close();
+        return Promise.resolve(data.imageName);
+      }
+      default: {
+        console.log("Unknown phase in response from server");
+        console.log(data);
+        break;
+      }
     }
   }
-
-  throw new Error("Build stream finished unexpectedly.");
 }
 
-function ImageLogs({
-  setTerm,
-  setFitAddon,
-  name,
-}: {
-  setTerm: (term: Terminal) => void;
-  setFitAddon: (fitAddon: FitAddon) => void;
+interface IImageLogs {
+  setTerm: React.Dispatch<React.SetStateAction<Terminal>>;
+  setFitAddon: React.Dispatch<React.SetStateAction<FitAddon>>;
   name: string;
-}) {
-  const terminalId = `image-logs-${name}`;
+}
 
+function ImageLogs({ setTerm, setFitAddon, name }: IImageLogs) {
+  const terminalId = `${name}--terminal`;
   useEffect(() => {
-    let isMounted = true;
-
     async function setup() {
-      const xterm = await import("xterm");
-      const xtermFit = await import("xterm-addon-fit");
-
-      if (!isMounted) return;
-
-      const term = new xterm.Terminal({
+      const { Terminal } = await import("xterm");
+      const { FitAddon } = await import("xterm-addon-fit");
+      const term = new Terminal({
         convertEol: true,
-        scrollback: 1000,
         disableStdin: true,
+        // 60 cols is pretty small, but unfortunately we have very limited width
+        // available in our form!
+        cols: 66,
+        rows: 1,
+        // Increase scrollback since image builds can sometimes produce a ton of output
+        scrollback: 10000,
+        // colors checked with the contrast checker at https://webaim.org/resources/contrastchecker/
+        theme: {
+          red: "\x1b[38;2;248;113;133m",
+          green: "\x1b[38;2;134;239;172m",
+          yellow: "\x1b[38;2;253;224;71m",
+          blue: "\x1b[38;2;147;197;253m",
+          magenta: "\x1b[38;2;249;168;212m",
+          cyan: "\x1b[38;2;103;232;249m",
+        },
       });
-      const fitAddon = new xtermFit.FitAddon();
+      const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
-
       term.open(document.getElementById(terminalId));
-      term.resize(66, 16);
       fitAddon.fit();
-
       setTerm(term);
       setFitAddon(fitAddon);
+      term.write("Logs will appear here when image is being built");
     }
-
     setup();
-
-    return () => {
-      isMounted = false;
-    };
   }, []);
 
   return (
@@ -176,19 +163,12 @@ export function ImageBuilder({ name, isActive, optionKey }: ICustomOptionProps) 
   const { setPermalinkValue, permalinkValues } = useContext(PermalinkContext);
 
   const repoRef = permalinkValues[`${optionKey}:ref`];
-  const binderRepo = permalinkValues[`${optionKey}:binderRepo`];
-  const binderProvider = permalinkValues[`${optionKey}:binderProvider`];
-  const binderSize = permalinkValues[`${optionKey}:binderSize`];
-
+  const binderRepo= permalinkValues[`${optionKey}:binderRepo`];
   const { repo, repoId, repoFieldProps, repoError } =
-    useRepositoryField((binderProvider as any) || "gh", binderRepo);
-
+    useRepositoryField(binderRepo);
   const { getRepositoryOptions, getRefOptions, removeRefOption, removeRepositoryOption } = useFormCache();
 
   const [ref, setRef] = useState<string>(repoRef || "HEAD");
-  const [provider, setProvider] = useState<BinderProviderId>((binderProvider as BinderProviderId) || "gh");
-  const [size, setSize] = useState<string>(binderSize || "default");
-
   const repoFieldRef = useRef<HTMLInputElement>();
   const branchFieldRef = useRef<HTMLInputElement>();
 
@@ -210,8 +190,7 @@ export function ImageBuilder({ name, isActive, optionKey }: ICustomOptionProps) 
   }, [isActive]);
 
   if (isActive) {
-    setPermalinkValue(`${optionKey}:binderProvider`, provider);
-    setPermalinkValue(`${optionKey}:binderSize`, size);
+    setPermalinkValue(`${optionKey}:binderProvider`, "gh");
     setPermalinkValue(`${optionKey}:binderRepo`, repoId);
     setPermalinkValue(`${optionKey}:ref`, ref);
   }
@@ -223,29 +202,21 @@ export function ImageBuilder({ name, isActive, optionKey }: ICustomOptionProps) 
       return;
     }
 
-    if (provider !== "zenodo" && branchFieldRef.current && !ref) {
+    if (branchFieldRef.current && !ref) {
       branchFieldRef.current.focus();
       branchFieldRef.current.blur();
       return;
     }
 
-    if (!term || !fitAddon) return;
-
     setIsBuildingImage(true);
-    buildImage(provider, repoId, ref, term, fitAddon)
+    buildImage(repoId, ref, term, fitAddon)
       .then((imageName) => {
         setCustomImage(imageName);
         term.write(
-          `\r\n\x1b[32mBuild completed successfully.\x1b[0m\r\n`,
+          "\nImage has been built! Click the start button to launch your server",
         );
       })
-      .catch((e) => {
-        setCustomImage("");
-        setCustomImageError(e.message);
-        term.write(
-          `\r\n\x1b[31mBuild failed: ${e.message}\x1b[0m\r\n`,
-        );
-      })
+      .catch(() => console.log("Error building image."))
       .finally(() => setIsBuildingImage(false));
   };
 
@@ -263,38 +234,10 @@ export function ImageBuilder({ name, isActive, optionKey }: ICustomOptionProps) 
   // don't generate the hidden input that posts the built image out.
   return (
     <>
-      <SelectField
-        id={`${name}--provider`}
-        label="Provider"
-        options={[
-          { label: "GitHub", value: "gh" },
-          { label: "GitLab", value: "gl" },
-          { label: "Gist", value: "gist" },
-          { label: "Zenodo", value: "zenodo" },
-          { label: "Git URL", value: "git" },
-        ]}
-        defaultOption={{ label: "GitHub", value: "gh" }}
-        value={provider}
-        onChange={(e) => setProvider(e.value as BinderProviderId)}
-        tabIndex={isActive ? 0 : -1}
-        validate={isActive ? { required: "Select a repository provider." } : undefined}
-      />
-
-      <SelectField
-        id={`${name}--size`}
-        label="Instance size"
-        hint="Temporary UI: mapping to actual CPU/RAM will be added in hub config."
-        options={[
-          { label: "Default", value: "default" },
-          { label: "Small", value: "small" },
-          { label: "Medium", value: "medium" },
-          { label: "Large", value: "large" },
-        ]}
-        defaultOption={{ label: "Default", value: "default" }}
-        value={size}
-        onChange={(e) => setSize(e.value)}
-        tabIndex={isActive ? 0 : -1}
-      />
+      <div className="profile-option-container">
+        <div className="profile-option-label-container">Provider</div>
+        <div className="profile-option-control-container">GitHub</div>
+      </div>
 
       <Combobox
         id={`${name}--repo`}
@@ -308,7 +251,7 @@ export function ImageBuilder({ name, isActive, optionKey }: ICustomOptionProps) 
         onRemoveOption={(option) => removeRepositoryOption(name, option)}
         validate={
           isActive && {
-            required: "Provide a repository identifier for the selected provider.",
+            required: "Provide the repository as the format 'organization/repository'.",
           }
         }
         onKeyDown={handleKeyDown}
@@ -316,20 +259,13 @@ export function ImageBuilder({ name, isActive, optionKey }: ICustomOptionProps) 
       <Combobox
         id={`${name}--ref`}
         label="Git Ref"
-        disabled={provider === "zenodo"}
         ref={branchFieldRef}
-        hint={
-          provider === "zenodo"
-            ? "Zenodo does not use git refs."
-            : "Branch, Tag or Commit to use. HEAD will use the default branch"
-        }
+        hint="Branch, Tag or Commit to use. HEAD will use the default branch"
         value={ref}
         validate={
-          provider === "zenodo"
-            ? undefined
-            : isActive && {
-                required: "Enter a git ref.",
-              }
+          isActive && {
+            required: "Enter a git ref.",
+          }
         }
         onChange={(e) => setRef(e.target.value)}
         onBlur={(e) => {
@@ -381,4 +317,3 @@ export function ImageBuilder({ name, isActive, optionKey }: ICustomOptionProps) 
     </>
   );
 }
-

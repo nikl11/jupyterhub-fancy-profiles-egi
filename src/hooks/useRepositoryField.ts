@@ -1,43 +1,123 @@
-import { ChangeEventHandler, useCallback, useEffect, useState } from "react";
+import { ChangeEventHandler, useCallback, useEffect, useMemo, useState } from "react";
 
-function extractOrgAndRepo(value: string) {
-  let orgRepoString;
-  const orgRepoMatch = /^[^/]+\/[^/]+$/.exec(value);
+type ProviderId = "gh" | "gl" | "gist" | "zenodo" | "git" | string;
 
-  if (orgRepoMatch) {
-    orgRepoString = orgRepoMatch[0];
-  } else {
-    const fullUrlMatch =
-      /^(?:https?:\/\/)?(?:www\.)?github\.com\/((?:[^/]+\/[^/]+|[^/]+\/[^/]+)?)\/?$/.exec(
-        value,
-      );
-    if (fullUrlMatch) {
-      orgRepoString = fullUrlMatch[1];
-    }
-  }
-
-  return orgRepoString;
+function normalizeInput(value: string) {
+  return value.trim();
 }
 
-export default function useRepositoryField(defaultValue: string) {
+function tryUrl(value: string) {
+  try {
+    return new URL(value);
+  } catch {
+    try {
+      return new URL(`https://${value}`);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function extractRepoId(provider: ProviderId, rawValue: string) {
+  const value = normalizeInput(rawValue);
+  if (!value) return undefined;
+
+  // GitHub: org/repo or github.com/org/repo
+  if (provider === "gh") {
+    const direct = /^[^/]+\/[^/]+$/.exec(value);
+    if (direct) return direct[0];
+
+    const url = tryUrl(value);
+    if (url && /(^|\.)github\.com$/i.test(url.hostname)) {
+      const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
+      if (parts.length >= 2) return `${parts[0]}/${parts[1]}`;
+    }
+    return undefined;
+  }
+
+  // GitLab: group[/subgroup]/repo or any gitlab URL (we keep full path)
+  if (provider === "gl") {
+    if (!value.includes("://")) {
+      const parts = value.split("/").filter(Boolean);
+      if (parts.length >= 2) return parts.join("/");
+    }
+
+    const url = tryUrl(value);
+    if (url) {
+      const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+      if (parts.length >= 2) return parts.join("/");
+    }
+    return undefined;
+  }
+
+  // Gist: user/gistid or gist.github.com/user/gistid (or gistid)
+  if (provider === "gist") {
+    const direct = /^[^/]+\/[^/]+$/.exec(value);
+    if (direct) return direct[0];
+
+    const url = tryUrl(value);
+    if (url && /(^|\.)gist\.github\.com$/i.test(url.hostname)) {
+      const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+      if (parts.length >= 2) return `${parts[0]}/${parts[1]}`;
+      if (parts.length === 1) return parts[0];
+    }
+    return undefined;
+  }
+
+  // Zenodo: record id or DOI or zenodo URL
+  if (provider === "zenodo") {
+    const url = tryUrl(value);
+    if (url && /(^|\.)zenodo\.org$/i.test(url.hostname)) {
+      const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+      // /record/<id> or /records/<id>
+      if (parts.length >= 2 && (parts[0] === "record" || parts[0] === "records")) {
+        return parts[1];
+      }
+      return parts.join("/");
+    }
+
+    const doiUrl = /^https?:\/\/doi\.org\/(.+)$/i.exec(value);
+    if (doiUrl) return doiUrl[1];
+
+    return value;
+  }
+
+  // Generic git URL mode: accept whatever user typed (validated elsewhere by repo2docker)
+  if (provider === "git") {
+    return value;
+  }
+
+  // Fallback: just return trimmed value
+  return value;
+}
+
+export default function useRepositoryField(provider: ProviderId, defaultValue: string) {
   const [value, setValue] = useState<string>(defaultValue || "");
   const [error, setError] = useState<string>();
   const [repoId, setRepoId] = useState<string>();
 
-  useEffect(() => {
-    if (defaultValue) {
-      // Automatically validate the value if the defaultValue is set
-      onBlur();
+  const requiredMessage = useMemo(() => {
+    switch (provider) {
+      case "gh":
+        return "Provide the repository as 'org/repo' or a GitHub URL.";
+      case "gl":
+        return "Provide the repository as 'group/repo' (subgroups allowed) or a GitLab URL.";
+      case "gist":
+        return "Provide the gist as 'user/gistid' or a Gist URL.";
+      case "zenodo":
+        return "Provide a Zenodo record id or DOI.";
+      case "git":
+        return "Provide a git URL (https://..., ssh://..., git@...).";
+      default:
+        return "Provide a repository identifier.";
     }
-  }, [defaultValue]);
+  }, [provider]);
 
   const validate = () => {
     setError(undefined);
-    const orgRepoString = extractOrgAndRepo(value);
-
-    if (!orgRepoString) {
-      return "Provide the repository as the format 'organization/repository'.";
-    }
+    const extracted = extractRepoId(provider, value);
+    if (!extracted) return requiredMessage;
+    return undefined;
   };
 
   const onChange: ChangeEventHandler<HTMLInputElement> = useCallback((e) => {
@@ -51,10 +131,16 @@ export default function useRepositoryField(defaultValue: string) {
       setError(err);
     } else {
       const trimmedValue = value.trim();
-      setRepoId(extractOrgAndRepo(trimmedValue));
+      const extracted = extractRepoId(provider, trimmedValue);
+      setRepoId(extracted);
       setValue(trimmedValue);
     }
-  }, [value]);
+  }, [value, provider, requiredMessage]);
+
+  useEffect(() => {
+    if (defaultValue) onBlur();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultValue, provider]);
 
   return {
     repo: value,
