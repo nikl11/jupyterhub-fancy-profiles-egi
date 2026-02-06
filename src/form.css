@@ -1,245 +1,106 @@
-/* Hide the classic submit container rendered by JupyterHub templates */
+/* Hide the legacy JupyterHub spawn submit/feedback block (prevents double Launch/Start) */
 .feedback-container {
-  display: none;
+  display: none !important;
 }
 
-/* ===== Fancy Profiles: Visual-first layout ===== */
-
+/* Basic page layout */
 .fp-page {
-  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
 }
 
 .fp-header {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.25rem;
+  gap: 16px;
+  margin: 12px 0 18px 0;
 }
 
 .fp-title {
+  font-size: 2.2rem;
   margin: 0;
-  font-size: 1.75rem;
-  font-weight: 700;
 }
 
-.fp-subtitle {
-  margin: 0.25rem 0 0 0;
-  opacity: 0.8;
+.fp-permalink a,
+.fp-permalink button {
+  font-size: 1rem;
 }
 
-.fp-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-/* Responsive two-column grid */
-.fp-grid {
-  display: grid;
-  grid-template-columns: 1.35fr 1fr;
-  gap: 1rem;
-}
-
-@media (max-width: 1200px) {
-  .fp-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.fp-col {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-/* Card styling */
+/* Card with form */
 .fp-card {
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 12px;
-  background: var(--bs-body-bg);
-  overflow: hidden;
-}
-
-[data-bs-theme="dark"] .fp-card {
-  border-color: rgba(255, 255, 255, 0.15);
-}
-
-.fp-card-secondary {
-  border-style: dashed;
-  opacity: 0.95;
-}
-
-.fp-card-header {
-  padding: 1rem 1rem 0.75rem 1rem;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-[data-bs-theme="dark"] .fp-card-header {
-  border-bottom-color: rgba(255, 255, 255, 0.12);
-}
-
-.fp-card-title {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.fp-card-hint {
-  margin: 0.25rem 0 0 0;
-  opacity: 0.75;
-  font-size: 0.95rem;
-}
-
-.fp-card-body {
-  padding: 1rem;
-}
-
-/* Form primitives */
-.fp-field {
-  margin-bottom: 0.9rem;
-}
-
-.fp-field-grow {
-  flex: 1;
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  border-radius: 6px;
+  padding: 22px 26px;
 }
 
 .fp-row {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
-}
-
-.fp-row-tight {
-  gap: 0.5rem;
-}
-
-@media (max-width: 900px) {
-  .fp-row {
-    flex-direction: column;
-  }
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 18px;
+  align-items: start;
+  margin-bottom: 18px;
 }
 
 .fp-label {
-  font-weight: 600;
-  margin-bottom: 0.35rem;
-  display: inline-block;
+  padding-top: 10px;
+  color: #111;
 }
 
+.fp-control {
+  width: 100%;
+}
+
+.fp-select {
+  width: 100%;
+  max-width: 520px;
+  min-height: 44px;
+}
+
+/* Description under the select */
 .fp-help {
-  margin-top: 0.25rem;
-  font-size: 0.9rem;
-  opacity: 0.75;
+  margin-top: 6px;
+  max-width: 720px;
 }
 
-.fp-muted {
-  opacity: 0.75;
+/* Options area below the selector */
+.fp-options {
+  margin-top: 8px;
+  padding-top: 10px;
 }
 
-.fp-small {
-  font-size: 0.9rem;
+/* Launch button area */
+.fp-launch {
+  margin-top: 18px;
 }
 
-.fp-divider {
-  height: 1px;
-  background: rgba(0, 0, 0, 0.08);
-  margin: 0.9rem 0;
+.fp-launch-btn {
+  width: 100%;
+  min-height: 44px;
 }
 
-[data-bs-theme="dark"] .fp-divider {
-  background: rgba(255, 255, 255, 0.12);
+/* Accent buttons (adaptive theming via CSS variables set in theme.ts) */
+.btn-jupyter {
+  background: var(--fp-accent, #f37726) !important;
+  border-color: var(--fp-accent, #f37726) !important;
+  color: #fff !important;
 }
 
-.fp-divider-tight {
-  margin: 0.6rem 0;
+.btn-jupyter:hover,
+.btn-jupyter:focus {
+  background: var(--fp-accent-hover, #e46b1f) !important;
+  border-color: var(--fp-accent-hover, #e46b1f) !important;
+  color: #fff !important;
 }
 
-.fp-toggle {
-  margin-top: -0.25rem;
-  margin-bottom: 0.5rem;
+/* Keep existing helpers */
+.hidden {
+  display: none !important;
 }
 
-.fp-toggle-btn {
-  padding: 0;
-  text-decoration: none;
-  font-weight: 700;
-}
-
-.fp-start {
-  margin-top: 0.25rem;
-}
-
-/* Image builder */
-.fp-imagebuilder {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.fp-mini-btn {
-  width: fit-content;
-}
-
-.fp-build-details {
-  margin-top: 0.5rem;
-}
-
-.fp-fake-terminal {
-  margin-top: 0.5rem;
-  border-radius: 10px;
-  padding: 0.75rem;
-  background: #0b0b0b;
-  color: #f2f2f2;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 0.9rem;
-}
-
-.fp-terminal-line {
-  opacity: 0.92;
-}
-
-/* Advanced */
-.fp-advanced-grid {
+/* Keep your existing grid class if used elsewhere */
+.form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-  margin-top: 0.75rem;
+  gap: 18px;
 }
-
-@media (max-width: 900px) {
-  .fp-advanced-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.fp-adv-card {
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 10px;
-  padding: 0.75rem;
-}
-
-[data-bs-theme="dark"] .fp-adv-card {
-  border-color: rgba(255, 255, 255, 0.12);
-}
-
-.fp-adv-title {
-  font-weight: 800;
-  margin-bottom: 0.25rem;
-}
-
-/* Profile options */
-.fp-options-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.5rem;
-}
-
-/* Keep the original "selected-profile" styles harmless if still present somewhere */
-.selected-profile {
-  background-color: rgba(0, 0, 0, 0.03);
-}
-
-[data-bs-theme="dark"] .selected-profile {
-  background-color: rgba(255, 255, 255, 0.06);
-}
-
