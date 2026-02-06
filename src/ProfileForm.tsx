@@ -85,7 +85,7 @@ export function ProfileForm() {
 
         <div className="fp-launch">
           <button className="btn btn-jupyter fp-launch-btn" type="submit">
-            Launch
+            Launch ZyZ
           </button>
         </div>
       </div>
