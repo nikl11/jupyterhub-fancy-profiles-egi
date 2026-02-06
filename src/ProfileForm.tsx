@@ -53,7 +53,7 @@ export function ProfileForm() {
         <div className="fp-row">
           <div className="fp-label">
             <label htmlFor="fp-server-option" className="form-label">
-              Server option
+              Server option ZzZ
             </label>
           </div>
 
