@@ -1,26 +1,37 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./ProfileForm";
 
-type Profile = {
-  slug: string;
-  display_name?: string;
-  description?: string;
-  default?: boolean;
-  kubespawner_override?: Record<string, unknown>;
-  profile_options?: Record<string, unknown>;
-};
+import App from "./ProfileForm";
+import { GLOBAL_CSS } from "./styles";
+import { applyThemeClass } from "./theme";
 
-declare global {
-  interface Window {
-    profileList?: Profile[];
-  }
+function injectGlobalCss(cssText: string) {
+  const id = "jupyterhub-fancy-profiles-css";
+  if (document.getElementById(id)) return;
+
+  const el = document.createElement("style");
+  el.id = id;
+  el.textContent = cssText;
+  document.head.appendChild(el);
 }
 
-const mount = document.getElementById("form");
-
-if (mount) {
-  const root = createRoot(mount);
-  root.render(<App profileList={window.profileList ?? []} />);
+function getProfileList(): any[] {
+  const list = (window as any).profileList;
+  return Array.isArray(list) ? list : [];
 }
 
+const rootEl = document.getElementById("form");
+
+if (rootEl) {
+  injectGlobalCss(GLOBAL_CSS);
+  applyThemeClass();
+
+  const profileList = getProfileList();
+
+  const root = createRoot(rootEl);
+  root.render(
+    <React.StrictMode>
+      <App profileList={profileList} />
+    </React.StrictMode>,
+  );
+}

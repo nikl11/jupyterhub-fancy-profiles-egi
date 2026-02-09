@@ -3,140 +3,148 @@ import { ImageBuilder } from "./ImageBuilder";
 
 type Profile = {
   slug: string;
-  display_name?: string;
+  display_name: string;
   description?: string;
   default?: boolean;
+  profile_options?: Record<string, any>;
 };
 
 type Props = {
   profileList: Profile[];
 };
 
-function ProfileCards(props: {
-  profileList: Profile[];
-  selectedSlug: string;
-  onSelect: (slug: string) => void;
-}) {
-  const { profileList, selectedSlug, onSelect } = props;
+type Mode = "prebuilt" | "build";
+
+export default function App({ profileList }: Props) {
+  const defaultProfile =
+    profileList.find((p) => p.default === true) || profileList[0];
+
+  const [selectedSlug, setSelectedSlug] = React.useState<string>(
+    defaultProfile?.slug ?? "",
+  );
+
+  const [mode, setMode] = React.useState<Mode>("prebuilt");
+
+  const selectedProfile = React.useMemo(() => {
+    return profileList.find((p) => p.slug === selectedSlug) || defaultProfile;
+  }, [profileList, selectedSlug, defaultProfile]);
+
+  if (!profileList || profileList.length === 0) {
+    return (
+      <div className="alert alert-warning">
+        No profiles available. Check spawner profile_list configuration.
+      </div>
+    );
+  }
+
+  if (!selectedProfile) {
+    return (
+      <div className="alert alert-warning">
+        Selected profile not found.
+      </div>
+    );
+  }
 
   return (
-    <div className="card mb-3">
-      <div className="card-body">
-        <div className="d-flex align-items-center justify-content-between mb-2">
-          <div>
-            <h2 className="h4 mb-0">Environment</h2>
-            <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-              Select an environment profile.
-            </div>
-          </div>
-          <span className="badge text-bg-secondary">Preview</span>
+    <div className="jhfp-page">
+      <div className="jhfp-header">
+        <h2 className="jhfp-title">Server Options</h2>
+        <div className="text-muted" style={{ fontSize: "0.95rem" }}>
+          Choose resources and optionally build your own image.
+        </div>
+      </div>
+
+      <div className="jhfp-card">
+        <div className="jhfp-mode" role="tablist" aria-label="Mode switch">
+          <button
+            type="button"
+            className={`btn btn-sm btn-outline-secondary ${mode === "prebuilt" ? "active" : ""}`}
+            onClick={() => setMode("prebuilt")}
+          >
+            Use prebuilt environment
+          </button>
+
+          <button
+            type="button"
+            className={`btn btn-sm btn-outline-secondary ${mode === "build" ? "active" : ""}`}
+            onClick={() => setMode("build")}
+          >
+            Build your own image
+          </button>
         </div>
 
-        <div className="d-grid gap-2">
-          {profileList.map((p) => {
-            const title = p.display_name ?? p.slug;
-            const desc = p.description ?? "";
-            const active = p.slug === selectedSlug;
+        <div className="jhfp-grid">
+          {/* LEFT: core component - server options (profiles) */}
+          <div>
+            <div className="mb-2 fw-semibold">Environment size</div>
 
-            return (
-              <label
-                key={p.slug}
-                htmlFor={`profile-${p.slug}`}
-                className={`border rounded p-3 ${active ? "border-primary" : ""}`}
-                style={{ cursor: "pointer" }}
-              >
-                <div className="d-flex align-items-start justify-content-between gap-3">
-                  <div>
-                    <div className="fw-semibold">{title}</div>
-                    {desc ? (
-                      <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-                        {desc}
-                      </div>
-                    ) : null}
+            <div className="jhfp-profile-list">
+              {profileList.map((p) => {
+                const active = p.slug === selectedProfile.slug;
+                return (
+                  <div
+                    key={p.slug}
+                    className={`jhfp-profile-item ${active ? "active" : ""}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedSlug(p.slug)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") setSelectedSlug(p.slug);
+                    }}
+                    aria-pressed={active}
+                  >
+                    <p className="jhfp-profile-name">{p.display_name}</p>
+                    <p className="jhfp-profile-desc">{p.description || " "}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Hidden field that is actually submitted to JupyterHub */}
+            <input
+              type="radio"
+              className="hidden"
+              name="profile"
+              value={selectedProfile.slug}
+              checked
+              readOnly
+            />
+          </div>
+
+          {/* RIGHT: mode-dependent content */}
+          <div>
+            {mode === "prebuilt" ? (
+              <div>
+                <div className="mb-2 fw-semibold">Summary</div>
+
+                <div className="p-3 border rounded bg-body-tertiary">
+                  <div className="fw-semibold">{selectedProfile.display_name}</div>
+                  <div className="text-muted" style={{ fontSize: "0.95rem" }}>
+                    {selectedProfile.description || "No description."}
                   </div>
 
-                  <input
-                    id={`profile-${p.slug}`}
-                    type="radio"
-                    name="select-profile"
-                    value={p.slug}
-                    checked={active}
-                    onChange={() => onSelect(p.slug)}
-                  />
+                  <hr />
+
+                  <div className="text-muted" style={{ fontSize: "0.95rem" }}>
+                    Profile options wiring comes next (dynamic form per profile_options).
+                  </div>
                 </div>
-              </label>
-            );
-          })}
-        </div>
+              </div>
+            ) : (
+              <div>
+                <div className="mb-2 fw-semibold">Build your own image</div>
+                <ImageBuilder />
+              </div>
+            )}
 
-        {/* This is the field that actually gets submitted by JupyterHub spawn form */}
-        <input type="hidden" name="profile" value={selectedSlug} />
-      </div>
-    </div>
-  );
-}
-
-function OptionsPreview(props: { selectedSlug: string }) {
-  const { selectedSlug } = props;
-
-  return (
-    <div className="card">
-      <div className="card-body">
-        <h3 className="h5 mb-2">Options</h3>
-        <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-          Visual-only placeholders. We will wire real functionality later.
-        </div>
-
-        <div className="mt-3">
-          <div className="d-flex gap-2 align-items-center flex-wrap">
-            <span className="badge text-bg-primary">Selected profile</span>
-            <code>{selectedSlug}</code>
-          </div>
-
-          <div className="mt-3">
-            <ImageBuilder />
-          </div>
-
-          <div className="mt-3 p-2 border rounded bg-body-tertiary">
-            <div className="fw-semibold">Build & launch</div>
-            <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-              Buttons below are visual-only for now.
-            </div>
-            <div className="d-flex gap-2 mt-2 flex-wrap">
-              <button type="button" className="btn btn-outline-secondary btn-sm" disabled>
-                Build image
-              </button>
-              <button type="button" className="btn btn-outline-secondary btn-sm" disabled>
-                Open logs
+            <div className="jhfp-footer">
+              <button className="btn jhfp-primary-btn" type="submit">
+                Launch
               </button>
             </div>
           </div>
         </div>
-
-        <button className="btn btn-jupyter form-control mt-3" type="submit">
-          Start (validate UI update)
-        </button>
       </div>
     </div>
   );
 }
-
-export function App(props: Props) {
-  const list = props.profileList ?? [];
-  const initial =
-    list.find((p) => p.default === true)?.slug ?? list[0]?.slug ?? "default";
-
-  const [selectedSlug, setSelectedSlug] = React.useState<string>(initial);
-
-  return (
-    <div>
-      <ProfileCards
-        profileList={list.length ? list : [{ slug: "default", display_name: "Default", default: true }]}
-        selectedSlug={selectedSlug}
-        onSelect={setSelectedSlug}
-      />
-      <OptionsPreview selectedSlug={selectedSlug} />
-    </div>
-  );
-}
-
