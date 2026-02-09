@@ -11,8 +11,6 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-!jupyterhub_fancy_profiles/static/dist/
-!jupyterhub_fancy_profiles/static/dist/**
 downloads/
 eggs/
 .eggs/

@@ -1,29 +1,26 @@
+import * as React from "react";
 import { createRoot } from "react-dom/client";
-import { SpawnerFormProvider } from "./state";
-import { ProfileForm } from "./ProfileForm";
-import { applyTheming } from "./theme";
+import { App } from "./ProfileForm";
+
+type Profile = {
+  slug: string;
+  display_name?: string;
+  description?: string;
+  default?: boolean;
+  kubespawner_override?: Record<string, unknown>;
+  profile_options?: Record<string, unknown>;
+};
 
 declare global {
   interface Window {
-    profileList?: any[];
+    profileList?: Profile[];
   }
 }
 
-function main() {
-  // Apply theming as early as possible (buttons, accents)
-  applyTheming();
+const mount = document.getElementById("form");
 
-  const profileList = window.profileList || [];
-  const mount = document.getElementById("form");
-  if (!mount) return;
-
+if (mount) {
   const root = createRoot(mount);
-  root.render(
-    <SpawnerFormProvider profileList={profileList}>
-      <ProfileForm />
-    </SpawnerFormProvider>
-  );
+  root.render(<App profileList={window.profileList ?? []} />);
 }
-
-main();
 
