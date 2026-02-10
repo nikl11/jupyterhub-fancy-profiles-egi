@@ -1,18 +1,17 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 
-import App from "./ProfileForm";
+import { ProfileForm } from "./ProfileForm";
 import { GLOBAL_CSS } from "./styles";
 import { applyThemeClass } from "./theme";
 
-type MinimalProfile = {
+type Profile = {
   slug: string;
   display_name?: string;
   description?: string;
   default?: boolean;
-  // Keep it flexible; we only need slug for UI right now
-  profile_options?: unknown;
-  kubespawner_override?: unknown;
+  kubespawner_override?: Record<string, unknown>;
+  profile_options?: Record<string, unknown>;
 };
 
 function injectGlobalCss(cssText: string) {
@@ -25,17 +24,10 @@ function injectGlobalCss(cssText: string) {
   document.head.appendChild(el);
 }
 
-function getProfileList(): MinimalProfile[] {
+function getProfileList(): Profile[] {
   const w = window as unknown as { profileList?: unknown };
   const list = w.profileList;
-
-  if (!Array.isArray(list)) return [];
-
-  // Basic runtime sanity check so we don't crash on bad data
-  return list
-    .filter((p): p is Record<string, unknown> => typeof p === "object" && p !== null)
-    .filter((p) => typeof p.slug === "string")
-    .map((p) => p as unknown as MinimalProfile);
+  return Array.isArray(list) ? (list as Profile[]) : [];
 }
 
 const rootEl = document.getElementById("form");
@@ -49,7 +41,7 @@ if (rootEl) {
   const root = createRoot(rootEl);
   root.render(
     <React.StrictMode>
-      <App profileList={profileList} />
+      <ProfileForm profileList={profileList} />
     </React.StrictMode>,
   );
 }
