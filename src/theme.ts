@@ -1,10 +1,20 @@
 export type ThemeName = "egi" | "eosc";
 
+/**
+ * This constant can be injected at build time via Webpack DefinePlugin.
+ * Example: __JHFP_THEME__ = "eosc"
+ */
 declare const __JHFP_THEME__: ThemeName | undefined;
 
+type ThemeWindow = Window & {
+  __JHFP_THEME__?: ThemeName;
+};
+
 export function getTheme(): ThemeName {
-  // Compile-time injected by webpack DefinePlugin (fallback to "egi")
-  const baked = (typeof __JHFP_THEME__ !== "undefined" ? __JHFP_THEME__ : "egi") as ThemeName;
+  // Value injected at build time (fallback to "egi")
+  const baked: ThemeName =
+    typeof __JHFP_THEME__ !== "undefined" ? __JHFP_THEME__ : "egi";
+
   return baked === "eosc" ? "eosc" : "egi";
 }
 
@@ -13,10 +23,13 @@ export function applyThemeClass(): ThemeName {
   const root = document.documentElement;
 
   root.classList.remove("jhfp-theme-egi", "jhfp-theme-eosc");
-  root.classList.add(theme === "eosc" ? "jhfp-theme-eosc" : "jhfp-theme-egi");
+  root.classList.add(
+    theme === "eosc" ? "jhfp-theme-eosc" : "jhfp-theme-egi",
+  );
 
-  // Optional debug
-  (window as any).__JHFP_THEME__ = theme;
+  // Expose for debugging (no "any")
+  const w = window as ThemeWindow;
+  w.__JHFP_THEME__ = theme;
 
   return theme;
 }

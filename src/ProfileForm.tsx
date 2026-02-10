@@ -1,148 +1,227 @@
 import * as React from "react";
 import { ImageBuilder } from "./ImageBuilder";
+import "./form.css";
 
 type Profile = {
   slug: string;
   display_name: string;
   description?: string;
   default?: boolean;
-  profile_options?: Record<string, any>;
+  kubespawner_override?: Record<string, unknown>;
+  profile_options?: Record<string, unknown>;
 };
 
-type Props = {
-  profileList: Profile[];
-};
+declare global {
+  interface Window {
+    profileList?: Profile[];
+  }
+}
 
-type Mode = "prebuilt" | "build";
+const PROVIDERS = [
+  { value: "github", label: "GitHub" },
+  { value: "gitlab", label: "GitLab" },
+  { value: "gitea", label: "Gitea" },
+  { value: "bitbucket", label: "Bitbucket" },
+];
 
-export default function App({ profileList }: Props) {
-  const defaultProfile =
-    profileList.find((p) => p.default === true) || profileList[0];
+function getProfiles(): Profile[] {
+  return Array.isArray(window.profileList) ? window.profileList : [];
+}
 
+export function ProfileForm() {
+  const profiles = React.useMemo(() => getProfiles(), []);
+  const defaultProfile = React.useMemo(() => {
+    return profiles.find((p) => p.default === true) || profiles[0];
+  }, [profiles]);
+
+  const [mode, setMode] = React.useState<"profile" | "build">("profile");
   const [selectedSlug, setSelectedSlug] = React.useState<string>(
-    defaultProfile?.slug ?? "",
+    defaultProfile?.slug || "",
   );
 
-  const [mode, setMode] = React.useState<Mode>("prebuilt");
+  // Binder-like fields (visual only for now)
+  const [provider, setProvider] = React.useState<string>(PROVIDERS[0].value);
+  const [repository, setRepository] = React.useState<string>("");
+  const [ref, setRef] = React.useState<string>("");
 
-  const selectedProfile = React.useMemo(() => {
-    return profileList.find((p) => p.slug === selectedSlug) || defaultProfile;
-  }, [profileList, selectedSlug, defaultProfile]);
+  const activeProfile = React.useMemo(() => {
+    if (!profiles.length) return undefined;
+    return profiles.find((p) => p.slug === selectedSlug) || defaultProfile;
+  }, [profiles, selectedSlug, defaultProfile]);
 
-  if (!profileList || profileList.length === 0) {
+  if (!profiles.length) {
     return (
       <div className="alert alert-warning">
-        No profiles available. Check spawner profile_list configuration.
-      </div>
-    );
-  }
-
-  if (!selectedProfile) {
-    return (
-      <div className="alert alert-warning">
-        Selected profile not found.
+        No profiles available. window.profileList is missing or empty.
       </div>
     );
   }
 
   return (
-    <div className="jhfp-page">
-      <div className="jhfp-header">
-        <h2 className="jhfp-title">Server Options</h2>
-        <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-          Choose resources and optionally build your own image.
+    <div className="fp-page">
+      <div className="fp-header">
+        <div>
+          <h2 className="fp-title">Server options</h2>
+          <div className="fp-subtitle">
+            Choose a prebuilt environment or build your own image.
+          </div>
         </div>
       </div>
 
-      <div className="jhfp-card">
-        <div className="jhfp-mode" role="tablist" aria-label="Mode switch">
-          <button
-            type="button"
-            className={`btn btn-sm btn-outline-secondary ${mode === "prebuilt" ? "active" : ""}`}
-            onClick={() => setMode("prebuilt")}
-          >
-            Use prebuilt environment
-          </button>
+      {/* MODE SWITCH */}
+      <div className="fp-card fp-card--switch">
+        <div className="fp-switch">
+          <label className="fp-switch-item">
+            <input
+              type="radio"
+              name="fp-mode"
+              checked={mode === "profile"}
+              onChange={() => setMode("profile")}
+            />
+            <span>Use prebuilt environment</span>
+          </label>
 
-          <button
-            type="button"
-            className={`btn btn-sm btn-outline-secondary ${mode === "build" ? "active" : ""}`}
-            onClick={() => setMode("build")}
-          >
-            Build your own image
+          <label className="fp-switch-item">
+            <input
+              type="radio"
+              name="fp-mode"
+              checked={mode === "build"}
+              onChange={() => setMode("build")}
+            />
+            <span>Build your own image</span>
+          </label>
+        </div>
+      </div>
+
+      {/* BINDER SECTION */}
+      <div className="fp-card">
+        <div className="fp-section-title">Repository</div>
+
+        <div className="fp-grid">
+          <div className="fp-field">
+            <label className="fp-label" htmlFor="fp-provider">
+              Provider
+            </label>
+            <select
+              id="fp-provider"
+              className="form-select fp-select"
+              value={provider}
+              onChange={(e) => setProvider(e.target.value)}
+            >
+              {PROVIDERS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <div className="fp-help">
+              Visual only for now. Later this will map to Binder providers.
+            </div>
+          </div>
+
+          <div className="fp-field">
+            <label className="fp-label" htmlFor="fp-repository">
+              Repository
+            </label>
+            <input
+              id="fp-repository"
+              className="form-control"
+              placeholder="org/repo or full URL"
+              value={repository}
+              onChange={(e) => setRepository(e.target.value)}
+              autoComplete="off"
+            />
+            <div className="fp-help">
+              Example: jupyterhub/jupyterhub or https://github.com/org/repo
+            </div>
+          </div>
+
+          <div className="fp-field">
+            <label className="fp-label" htmlFor="fp-ref">
+              Ref (branch/tag/commit)
+            </label>
+            <input
+              id="fp-ref"
+              className="form-control"
+              placeholder="main / v1.2.3 / a1b2c3d"
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+              autoComplete="off"
+            />
+            <div className="fp-help">
+              Optional. If empty, default branch will be used.
+            </div>
+          </div>
+        </div>
+
+        {mode === "build" ? (
+          <div className="fp-build">
+            <ImageBuilder />
+          </div>
+        ) : null}
+      </div>
+
+      {/* JUPYTERHUB PROFILE SECTION */}
+      <div className="fp-card">
+        <div className="fp-section-title">Environment</div>
+
+        {/* Hidden field submitted to JupyterHub */}
+        <input
+          type="radio"
+          className="hidden"
+          name="profile"
+          value={activeProfile?.slug || ""}
+          checked
+          readOnly
+        />
+
+        <div className="fp-row">
+          <div className="fp-labelcol">
+            <label htmlFor="fp-server-option" className="fp-label">
+              Instance size
+            </label>
+          </div>
+          <div className="fp-controlcol">
+            <select
+              id="fp-server-option"
+              className="form-select fp-select"
+              value={activeProfile?.slug || ""}
+              onChange={(e) => setSelectedSlug(e.target.value)}
+              disabled={mode === "build"}
+              title={mode === "build" ? "Disabled in build mode" : undefined}
+            >
+              {profiles.map((p) => (
+                <option key={p.slug} value={p.slug}>
+                  {p.display_name}
+                </option>
+              ))}
+            </select>
+            {activeProfile?.description ? (
+              <div className="fp-help">{activeProfile.description}</div>
+            ) : null}
+            {mode === "build" ? (
+              <div className="fp-help">
+                In build mode, instance selection will be decided later.
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="fp-launch">
+          <button className="btn btn-jupyter fp-launch-btn" type="submit">
+            Launch
           </button>
         </div>
 
-        <div className="jhfp-grid">
-          {/* LEFT: core component - server options (profiles) */}
-          <div>
-            <div className="mb-2 fw-semibold">Environment size</div>
-
-            <div className="jhfp-profile-list">
-              {profileList.map((p) => {
-                const active = p.slug === selectedProfile.slug;
-                return (
-                  <div
-                    key={p.slug}
-                    className={`jhfp-profile-item ${active ? "active" : ""}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedSlug(p.slug)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") setSelectedSlug(p.slug);
-                    }}
-                    aria-pressed={active}
-                  >
-                    <p className="jhfp-profile-name">{p.display_name}</p>
-                    <p className="jhfp-profile-desc">{p.description || " "}</p>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Hidden field that is actually submitted to JupyterHub */}
-            <input
-              type="radio"
-              className="hidden"
-              name="profile"
-              value={selectedProfile.slug}
-              checked
-              readOnly
-            />
-          </div>
-
-          {/* RIGHT: mode-dependent content */}
-          <div>
-            {mode === "prebuilt" ? (
-              <div>
-                <div className="mb-2 fw-semibold">Summary</div>
-
-                <div className="p-3 border rounded bg-body-tertiary">
-                  <div className="fw-semibold">{selectedProfile.display_name}</div>
-                  <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-                    {selectedProfile.description || "No description."}
-                  </div>
-
-                  <hr />
-
-                  <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-                    Profile options wiring comes next (dynamic form per profile_options).
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <div className="mb-2 fw-semibold">Build your own image</div>
-                <ImageBuilder />
-              </div>
-            )}
-
-            <div className="jhfp-footer">
-              <button className="btn jhfp-primary-btn" type="submit">
-                Launch
-              </button>
-            </div>
-          </div>
+        {/* Debug-only (safe to remove later) */}
+        <div className="fp-debug">
+          <span className="fp-debug-pill">provider={provider}</span>
+          <span className="fp-debug-pill">repo={repository || "∅"}</span>
+          <span className="fp-debug-pill">ref={ref || "∅"}</span>
+          <span className="fp-debug-pill">mode={mode}</span>
+          <span className="fp-debug-pill">
+            profile={activeProfile?.slug || "∅"}
+          </span>
         </div>
       </div>
     </div>
