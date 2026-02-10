@@ -1,4 +1,6 @@
 jupyterhub_fancy_profiles/static/dist/*
+!jupyterhub_fancy_profiles/static/dist/form.js
+!jupyterhub_fancy_profiles/static/dist/form.js.map
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

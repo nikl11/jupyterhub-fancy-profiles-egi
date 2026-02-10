@@ -1,245 +1,103 @@
-/* Hide the classic submit container rendered by JupyterHub templates */
+/* Hide the legacy JupyterHub spawn submit/feedback block (prevents double Launch/Start) */
 .feedback-container {
-  display: none;
+  display: none !important;
 }
 
-/* ===== Fancy Profiles: Visual-first layout ===== */
+/* Theme variables (set via documentElement[data-jhfp-theme]) */
+:root {
+  --jhfp-accent: #f37726; /* egi default: Jupyter orange-ish */
+  --jhfp-accent-text: #ffffff;
+  --jhfp-card-bg: #ffffff;
+  --jhfp-border: rgba(0, 0, 0, 0.12);
+}
+
+:root[data-jhfp-theme="eosc"] {
+  --jhfp-accent: #0d6efd; /* eosc: blue */
+  --jhfp-accent-text: #ffffff;
+}
 
 .fp-page {
-  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 12px 0 24px 0;
 }
 
 .fp-header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.25rem;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
 }
 
 .fp-title {
   margin: 0;
-  font-size: 1.75rem;
+  font-size: 1.6rem;
   font-weight: 700;
 }
 
 .fp-subtitle {
-  margin: 0.25rem 0 0 0;
-  opacity: 0.8;
+  color: rgba(0, 0, 0, 0.65);
+  font-size: 0.98rem;
 }
 
-.fp-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-/* Responsive two-column grid */
-.fp-grid {
-  display: grid;
-  grid-template-columns: 1.35fr 1fr;
-  gap: 1rem;
-}
-
-@media (max-width: 1200px) {
-  .fp-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.fp-col {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-/* Card styling */
 .fp-card {
-  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: var(--jhfp-card-bg);
+  border: 1px solid var(--jhfp-border);
   border-radius: 12px;
-  background: var(--bs-body-bg);
-  overflow: hidden;
-}
-
-[data-bs-theme="dark"] .fp-card {
-  border-color: rgba(255, 255, 255, 0.15);
-}
-
-.fp-card-secondary {
-  border-style: dashed;
-  opacity: 0.95;
-}
-
-.fp-card-header {
-  padding: 1rem 1rem 0.75rem 1rem;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-[data-bs-theme="dark"] .fp-card-header {
-  border-bottom-color: rgba(255, 255, 255, 0.12);
-}
-
-.fp-card-title {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.fp-card-hint {
-  margin: 0.25rem 0 0 0;
-  opacity: 0.75;
-  font-size: 0.95rem;
-}
-
-.fp-card-body {
-  padding: 1rem;
-}
-
-/* Form primitives */
-.fp-field {
-  margin-bottom: 0.9rem;
-}
-
-.fp-field-grow {
-  flex: 1;
+  padding: 14px;
 }
 
 .fp-row {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
-}
-
-.fp-row-tight {
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 14px;
+  align-items: start;
 }
 
 @media (max-width: 900px) {
   .fp-row {
-    flex-direction: column;
-  }
-}
-
-.fp-label {
-  font-weight: 600;
-  margin-bottom: 0.35rem;
-  display: inline-block;
-}
-
-.fp-help {
-  margin-top: 0.25rem;
-  font-size: 0.9rem;
-  opacity: 0.75;
-}
-
-.fp-muted {
-  opacity: 0.75;
-}
-
-.fp-small {
-  font-size: 0.9rem;
-}
-
-.fp-divider {
-  height: 1px;
-  background: rgba(0, 0, 0, 0.08);
-  margin: 0.9rem 0;
-}
-
-[data-bs-theme="dark"] .fp-divider {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.fp-divider-tight {
-  margin: 0.6rem 0;
-}
-
-.fp-toggle {
-  margin-top: -0.25rem;
-  margin-bottom: 0.5rem;
-}
-
-.fp-toggle-btn {
-  padding: 0;
-  text-decoration: none;
-  font-weight: 700;
-}
-
-.fp-start {
-  margin-top: 0.25rem;
-}
-
-/* Image builder */
-.fp-imagebuilder {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.fp-mini-btn {
-  width: fit-content;
-}
-
-.fp-build-details {
-  margin-top: 0.5rem;
-}
-
-.fp-fake-terminal {
-  margin-top: 0.5rem;
-  border-radius: 10px;
-  padding: 0.75rem;
-  background: #0b0b0b;
-  color: #f2f2f2;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 0.9rem;
-}
-
-.fp-terminal-line {
-  opacity: 0.92;
-}
-
-/* Advanced */
-.fp-advanced-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-  margin-top: 0.75rem;
-}
-
-@media (max-width: 900px) {
-  .fp-advanced-grid {
     grid-template-columns: 1fr;
   }
 }
 
-.fp-adv-card {
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 10px;
-  padding: 0.75rem;
+.fp-label .form-label {
+  margin: 0;
+  font-weight: 600;
 }
 
-[data-bs-theme="dark"] .fp-adv-card {
-  border-color: rgba(255, 255, 255, 0.12);
+.fp-select {
+  max-width: 520px;
 }
 
-.fp-adv-title {
-  font-weight: 800;
-  margin-bottom: 0.25rem;
+.fp-help {
+  margin-top: 6px;
+  color: rgba(0, 0, 0, 0.65);
 }
 
-/* Profile options */
-.fp-options-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.5rem;
+.fp-binder {
+  margin-top: 12px;
 }
 
-/* Keep the original "selected-profile" styles harmless if still present somewhere */
-.selected-profile {
-  background-color: rgba(0, 0, 0, 0.03);
+.fp-launch {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
 }
 
-[data-bs-theme="dark"] .selected-profile {
-  background-color: rgba(255, 255, 255, 0.06);
+.fp-launch-btn {
+  min-width: 160px;
+  font-weight: 700;
 }
 
+/* Make the main action button follow theme */
+.fp-page .btn.btn-jupyter,
+.fp-page .btn-jupyter {
+  background-color: var(--jhfp-accent) !important;
+  border-color: var(--jhfp-accent) !important;
+  color: var(--jhfp-accent-text) !important;
+}
+
+.fp-page .btn.btn-jupyter:hover,
+.fp-page .btn-jupyter:hover {
+  filter: brightness(0.95);
+}
