@@ -1,35 +1,54 @@
 import * as React from "react";
-import { ImageBuilder } from "./ImageBuilder";
+import ImageBuilder, { type BuildResult } from "./ImageBuilder";
+import { useRepositoryField } from "./hooks/useRepositoryField";
 
-type Profile = {
+export type Profile = {
   slug: string;
   display_name: string;
   description?: string;
   default?: boolean;
-  profile_options?: Record<string, any>;
+  profile_options?: unknown;
 };
+
+const BINDER_SLUG = "__build_your_own_image__";
 
 type Props = {
   profileList: Profile[];
 };
 
-type Mode = "prebuilt" | "build";
+function pickDefaultProfile(profileList: Profile[]): Profile | null {
+  if (!profileList.length) return null;
+  return profileList.find((p) => p.default === true) ?? profileList[0];
+}
 
-export default function App({ profileList }: Props) {
-  const defaultProfile =
-    profileList.find((p) => p.default === true) || profileList[0];
+export default function ProfileForm({ profileList }: Props) {
+  const defaultProfile = React.useMemo(() => pickDefaultProfile(profileList), [profileList]);
 
   const [selectedSlug, setSelectedSlug] = React.useState<string>(
-    defaultProfile?.slug ?? "",
+    defaultProfile?.slug ?? BINDER_SLUG,
   );
 
-  const [mode, setMode] = React.useState<Mode>("prebuilt");
+  const isBinderMode = selectedSlug === BINDER_SLUG;
 
-  const selectedProfile = React.useMemo(() => {
-    return profileList.find((p) => p.slug === selectedSlug) || defaultProfile;
-  }, [profileList, selectedSlug, defaultProfile]);
+  // Binder fields
+  const [repoUrl, setRepoUrl] = React.useState<string>("");
+  const { repo, setRepo } = useRepositoryField(repoUrl);
+  const [gitRef, setGitRef] = React.useState<string>("main");
+  const [fileToOpen, setFileToOpen] = React.useState<string>("");
 
-  if (!profileList || profileList.length === 0) {
+  const [buildResult, setBuildResult] = React.useState<BuildResult | null>(null);
+
+  const activeProfile = React.useMemo(() => {
+    if (isBinderMode) return null;
+    return profileList.find((p) => p.slug === selectedSlug) ?? defaultProfile;
+  }, [defaultProfile, isBinderMode, profileList, selectedSlug]);
+
+  const onSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setBuildResult(null);
+    setSelectedSlug(e.target.value);
+  };
+
+  if (!defaultProfile && !isBinderMode) {
     return (
       <div className="alert alert-warning">
         No profiles available. Check spawner profile_list configuration.
@@ -37,114 +56,142 @@ export default function App({ profileList }: Props) {
     );
   }
 
-  if (!selectedProfile) {
-    return (
-      <div className="alert alert-warning">
-        Selected profile not found.
-      </div>
-    );
-  }
-
   return (
-    <div className="jhfp-page">
-      <div className="jhfp-header">
-        <h2 className="jhfp-title">Server Options</h2>
-        <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-          Choose resources and optionally build your own image.
+    <div className="fp-page">
+      <div className="fp-header">
+        <h2 className="fp-title">Server Options</h2>
+        <div className="fp-subtitle">
+          Choose a predefined JupyterHub environment, or build your own image (Binder).
         </div>
       </div>
 
-      <div className="jhfp-card">
-        <div className="jhfp-mode" role="tablist" aria-label="Mode switch">
-          <button
-            type="button"
-            className={`btn btn-sm btn-outline-secondary ${mode === "prebuilt" ? "active" : ""}`}
-            onClick={() => setMode("prebuilt")}
-          >
-            Use prebuilt environment
-          </button>
+      <div className="fp-card">
+        {/* This is the dropdown Jaromir wants as the "core component" */}
+        <div className="fp-row">
+          <div className="fp-label">
+            <label htmlFor="fp-server-option" className="form-label">
+              Server option
+            </label>
+          </div>
+          <div className="fp-control">
+            <select
+              id="fp-server-option"
+              className="form-select fp-select"
+              value={selectedSlug}
+              onChange={onSelect}
+            >
+              {profileList.map((p) => (
+                <option key={p.slug} value={p.slug}>
+                  {p.display_name}
+                </option>
+              ))}
+              <option value={BINDER_SLUG}>Build your own image (Binder)</option>
+            </select>
 
-          <button
-            type="button"
-            className={`btn btn-sm btn-outline-secondary ${mode === "build" ? "active" : ""}`}
-            onClick={() => setMode("build")}
-          >
-            Build your own image
-          </button>
+            {!isBinderMode && activeProfile?.description ? (
+              <div className="form-text fp-help">{activeProfile.description}</div>
+            ) : null}
+            {isBinderMode ? (
+              <div className="form-text fp-help">
+                This will build an image via Binder and show the build log.
+              </div>
+            ) : null}
+          </div>
         </div>
 
-        <div className="jhfp-grid">
-          {/* LEFT: core component - server options (profiles) */}
-          <div>
-            <div className="mb-2 fw-semibold">Environment size</div>
+        {/* JupyterHub mode: we keep only ONE submit button (fix double Start/Launch) */}
+        {!isBinderMode && activeProfile ? (
+          <>
+            {/* Hidden field submitted to JupyterHub */}
+            <input type="radio" className="hidden" name="profile" value={activeProfile.slug} checked readOnly />
 
-            <div className="jhfp-profile-list">
-              {profileList.map((p) => {
-                const active = p.slug === selectedProfile.slug;
-                return (
-                  <div
-                    key={p.slug}
-                    className={`jhfp-profile-item ${active ? "active" : ""}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedSlug(p.slug)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") setSelectedSlug(p.slug);
-                    }}
-                    aria-pressed={active}
-                  >
-                    <p className="jhfp-profile-name">{p.display_name}</p>
-                    <p className="jhfp-profile-desc">{p.description || " "}</p>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Hidden field that is actually submitted to JupyterHub */}
-            <input
-              type="radio"
-              className="hidden"
-              name="profile"
-              value={selectedProfile.slug}
-              checked
-              readOnly
-            />
-          </div>
-
-          {/* RIGHT: mode-dependent content */}
-          <div>
-            {mode === "prebuilt" ? (
-              <div>
-                <div className="mb-2 fw-semibold">Summary</div>
-
-                <div className="p-3 border rounded bg-body-tertiary">
-                  <div className="fw-semibold">{selectedProfile.display_name}</div>
-                  <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-                    {selectedProfile.description || "No description."}
-                  </div>
-
-                  <hr />
-
-                  <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-                    Profile options wiring comes next (dynamic form per profile_options).
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <div className="mb-2 fw-semibold">Build your own image</div>
-                <ImageBuilder />
-              </div>
-            )}
-
-            <div className="jhfp-footer">
-              <button className="btn jhfp-primary-btn" type="submit">
+            <div className="fp-launch">
+              <button className="btn btn-jupyter fp-launch-btn" type="submit">
                 Launch
               </button>
             </div>
+          </>
+        ) : null}
+
+        {/* Binder mode: repo/ref/file + build log */}
+        {isBinderMode ? (
+          <div className="fp-binder">
+            <div className="fp-divider" />
+
+            <div className="fp-row">
+              <div className="fp-label">
+                <label htmlFor="fp-repo" className="form-label">
+                  Repository (GitHub URL)
+                </label>
+              </div>
+              <div className="fp-control">
+                <input
+                  id="fp-repo"
+                  className="form-control"
+                  placeholder="https://github.com/org/repo"
+                  value={repoUrl}
+                  onChange={(e) => {
+                    setRepoUrl(e.target.value);
+                    // keep parsed repo in sync
+                    setRepo(e.target.value);
+                  }}
+                />
+                <div className="form-text fp-help">Example: https://github.com/jupyterhub/zero-to-jupyterhub-k8s</div>
+              </div>
+            </div>
+
+            <div className="fp-row">
+              <div className="fp-label">
+                <label htmlFor="fp-ref" className="form-label">
+                  Ref (branch / tag / commit)
+                </label>
+              </div>
+              <div className="fp-control">
+                <input
+                  id="fp-ref"
+                  className="form-control"
+                  placeholder="main"
+                  value={gitRef}
+                  onChange={(e) => setGitRef(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="fp-row">
+              <div className="fp-label">
+                <label htmlFor="fp-file" className="form-label">
+                  File to open (optional)
+                </label>
+              </div>
+              <div className="fp-control">
+                <input
+                  id="fp-file"
+                  className="form-control"
+                  placeholder="path/to/notebook.ipynb"
+                  value={fileToOpen}
+                  onChange={(e) => setFileToOpen(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <ImageBuilder
+              repo={repo}
+              gitRef={gitRef}
+              fileToOpen={fileToOpen}
+              onBuilt={(res) => setBuildResult(res)}
+            />
+
+            {buildResult ? (
+              <div className="alert alert-success fp-built">
+                <div><strong>Build complete.</strong></div>
+                <div className="fp-mono">image: {buildResult.imageName}</div>
+                {buildResult.binderRef ? <div className="fp-mono">ref: {buildResult.binderRef}</div> : null}
+              </div>
+            ) : null}
           </div>
-        </div>
+        ) : null}
       </div>
     </div>
   );
 }
+
