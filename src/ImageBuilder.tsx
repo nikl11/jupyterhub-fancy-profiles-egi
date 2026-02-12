@@ -1,238 +1,192 @@
-// src/ImageBuilder.tsx
 import * as React from "react";
-import { Terminal } from "xterm";
-import { FitAddon } from "xterm-addon-fit";
+import { useRepositoryField, RepoProvider } from "./hooks/useRepositoryField";
 
-export type BuildResult = {
-  imageName: string;
-  binderRef?: string;
+type ImageBuilderProps = {
+  title?: string;
 };
 
-type ProviderName = "gh" | "gl";
+const PROVIDER_OPTIONS: Array<{ value: RepoProvider; label: string; placeholder: string }> = [
+  { value: "github", label: "GitHub", placeholder: "org/repo (e.g. nikl11/jupyterhub-fancy-profiles-egi)" },
+  { value: "gitlab", label: "GitLab", placeholder: "group/repo or full URL" },
+  { value: "gist", label: "Gist", placeholder: "username/gist-id or full URL" },
+  { value: "zenodo", label: "Zenodo", placeholder: "record id or DOI" },
+  { value: "other", label: "Other", placeholder: "full git URL" },
+];
 
-type Props = {
-  provider: ProviderName;
-  repo: string;          // expected "org/repo" (gh) or "group/project" (gl)
-  gitRef: string;        // branch/tag/commit
-  subdir?: string;       // optional; appended to spec if set
-  fileToOpen?: string;   // optional; not used yet (UI only)
-  onBuilt?: (res: BuildResult) => void;
-};
-
-const TOKEN_KEY = "jhfp_binder_api_token";
-
-type JupyterHubTokenResponse = {
-  token: string;
-  id?: string;
-  created?: string;
-  last_activity?: string;
-  note?: string;
-};
-
-async function getOrCreateApiToken(): Promise<string> {
-  const cachedRaw = localStorage.getItem(TOKEN_KEY);
-  if (cachedRaw) {
-    try {
-      const cached = JSON.parse(cachedRaw) as Partial<JupyterHubTokenResponse>;
-      if (typeof cached.token === "string" && cached.token.length > 0) return cached.token;
-    } catch {
-      // ignore
-    }
-  }
-
-  const w = window as unknown as { jhdata?: { user?: { name?: string } } };
-  const userName = w.jhdata?.user?.name;
-  if (!userName) {
-    throw new Error("Missing jhdata.user.name (cannot create JupyterHub API token).");
-  }
-
-  const tokenResponse = await fetch(`/hub/api/users/${encodeURIComponent(userName)}/tokens`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      expires_in: 3600,
-      note: "Created by Fancy Profiles (Build your own image)",
-    }),
-    credentials: "include",
-  });
-
-  if (!tokenResponse.ok) {
-    const text = await tokenResponse.text();
-    throw new Error(`Failed to create token: ${tokenResponse.status} ${text}`);
-  }
-
-  const res = (await tokenResponse.json()) as JupyterHubTokenResponse;
-  if (!res.token) throw new Error("Token response missing token.");
-  localStorage.setItem(TOKEN_KEY, JSON.stringify(res));
-  return res.token;
+function providerPlaceholder(provider: RepoProvider): string {
+  const found = PROVIDER_OPTIONS.find((p) => p.value === provider);
+  return found ? found.placeholder : "repository";
 }
 
-function buildProviderSpec(provider: ProviderName, repo: string, ref: string, subdir?: string): string {
-  const base = `${provider}/${repo}/${ref}`;
-  const cleanSubdir = (subdir || "").trim().replace(/^\/+/, "").replace(/\/+$/, "");
-  if (!cleanSubdir) return base;
-  // binder supports specifying subdir via "path/to/repo" style for some providers,
-  // but behavior differs; keep it explicit and stable
-  return `${base}?subdir=${encodeURIComponent(cleanSubdir)}`;
-}
+export function ImageBuilder(props: ImageBuilderProps) {
+  const { title } = props;
 
-async function buildImage(
-  provider: ProviderName,
-  repo: string,
-  ref: string,
-  subdir: string | undefined,
-  term: Terminal,
-  fitAddon: FitAddon,
-): Promise<BuildResult> {
-  const apiToken = await getOrCreateApiToken();
+  const repoForm = useRepositoryField();
+  const [open, setOpen] = React.useState<boolean>(false);
 
-  const mod = (await import("@jupyterhub/binderhub-client/client.js")) as unknown as {
-    BinderRepository: new (
-      spec: string,
-      buildEndpoint: URL,
-      options: { apiToken: string; buildOnly: boolean },
-    ) => {
-      fetch: () => AsyncGenerator<Record<string, unknown>, void, unknown>;
-      imageName?: string;
-    };
-  };
+  // Optional "file to open" (Binder-style)
+  const [filepath, setFilepath] = React.useState<string>("");
 
-  const providerSpec = buildProviderSpec(provider, repo, ref, subdir);
+  // Placeholder build state / logs (wired later)
+  const [isBuilding, setIsBuilding] = React.useState<boolean>(false);
+  const [buildLog, setBuildLog] = React.useState<string>("");
 
-  // Binder service is exposed under JupyterHub as /services/binder/
-  const buildEndPointURL = new URL("/services/binder/build/", window.location.origin);
-
-  const image = new mod.BinderRepository(providerSpec, buildEndPointURL, {
-    apiToken,
-    buildOnly: true,
-  });
-
-  term.clear();
-  term.writeln(`Starting build: ${providerSpec}`);
-  term.writeln(`Endpoint: ${buildEndPointURL.toString()}`);
-  term.writeln("");
-
-  for await (const evt of image.fetch()) {
-    const msg = (evt as { message?: unknown }).message;
-    if (typeof msg === "string" && msg.length > 0) {
-      term.writeln(msg);
-      fitAddon.fit();
-      continue;
-    }
-
-    const phase = (evt as { phase?: unknown }).phase;
-    if (typeof phase === "string" && phase.length > 0) {
-      term.writeln(`[${phase}]`);
-      fitAddon.fit();
-      continue;
-    }
-  }
-
-  const imageName =
-    typeof image.imageName === "string" && image.imageName.length > 0 ? image.imageName : "unknown";
-
-  term.writeln("");
-  term.writeln("Build finished.");
-
-  return { imageName, binderRef: providerSpec };
-}
-
-export default function ImageBuilder({ provider, repo, gitRef, subdir, onBuilt }: Props) {
-  const termRef = React.useRef<Terminal | null>(null);
-  const fitRef = React.useRef<FitAddon | null>(null);
-  const containerRef = React.useRef<HTMLDivElement | null>(null);
-
-  const [isBuilding, setIsBuilding] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const terminalRef = React.useRef<HTMLPreElement | null>(null);
 
   React.useEffect(() => {
-    if (!containerRef.current) return;
+    if (!terminalRef.current) return;
+    // Keep terminal scrolled to bottom when logs change
+    terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+  }, [buildLog]);
 
-    const term = new Terminal({
-      convertEol: true,
-      fontSize: 12,
-      scrollback: 5000,
-    });
-    const fitAddon = new FitAddon();
+  function appendLog(line: string) {
+    setBuildLog((prev) => (prev ? `${prev}\n${line}` : line));
+  }
 
-    term.loadAddon(fitAddon);
-    term.open(containerRef.current);
-    fitAddon.fit();
-
-    termRef.current = term;
-    fitRef.current = fitAddon;
-
-    term.writeln("Ready.");
-
-    const onResize = () => fitAddon.fit();
-    window.addEventListener("resize", onResize);
-
-    return () => {
-      window.removeEventListener("resize", onResize);
-      term.dispose();
-      termRef.current = null;
-      fitRef.current = null;
-    };
-  }, []);
-
-  const canBuild =
-    provider.trim().length > 0 && repo.trim().length > 0 && gitRef.trim().length > 0;
-
-  const onBuild = async () => {
-    setError(null);
-
-    const term = termRef.current;
-    const fitAddon = fitRef.current;
-    if (!term || !fitAddon) {
-      setError("Terminal is not initialized.");
-      return;
-    }
-
-    if (!canBuild) {
-      setError("Provider, repository and ref are required.");
-      return;
-    }
-
+  function handleFakeBuild() {
+    // UI-only for now (we will wire binder build later)
     setIsBuilding(true);
-    try {
-      const result = await buildImage(
-        provider,
-        repo.trim(),
-        gitRef.trim(),
-        subdir?.trim() || undefined,
-        term,
-        fitAddon,
-      );
-      if (onBuilt) onBuilt(result);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
-      term.writeln("");
-      term.writeln(`ERROR: ${msg}`);
-      fitAddon.fit();
-    } finally {
+    setBuildLog("");
+    appendLog("Starting build (UI-only placeholder)...");
+    appendLog(`Provider: ${repoForm.provider}`);
+    appendLog(`Repository: ${repoForm.repo || "(empty)"}`);
+    appendLog(`Ref: ${repoForm.ref || "(default)"}`);
+    appendLog(`Subdir: ${repoForm.subdir || "(none)"}`);
+    appendLog(`File to open: ${filepath || "(none)"}`);
+    appendLog("");
+    appendLog("TODO: Wire BinderHub build + stream logs.");
+    setTimeout(() => {
+      appendLog("Done (placeholder).");
       setIsBuilding(false);
-    }
-  };
+    }, 600);
+  }
 
   return (
-    <div className="fp-builder">
-      <div className="fp-row">
-        <div className="fp-label" />
-        <div className="fp-control">
-          <button
-            type="button"
-            className="btn btn-jupyter fp-build-btn"
-            disabled={!canBuild || isBuilding}
-            onClick={onBuild}
-          >
-            {isBuilding ? "Building..." : "Build image"}
-          </button>
-          {error ? <div className="form-text fp-error">{error}</div> : null}
-        </div>
+    <div className="fp-options-block">
+      <div className="fp-options-header">
+        <div className="fp-options-title">{title ?? "Options"}</div>
+        <div className="fp-options-subtitle">Options will be wired next.</div>
       </div>
 
-      <div className="fp-terminal" ref={containerRef} />
+      <div className="fp-binder-block">
+        <div className="fp-binder-head">
+          <div className="fp-binder-title">Build your own image (Binder)</div>
+          <button
+            type="button"
+            className="btn btn-default fp-binder-toggle"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+          >
+            {open ? "Hide" : "Show"}
+          </button>
+        </div>
+
+        {open ? (
+          <div className="fp-binder-body">
+            <div className="fp-grid">
+              <div className="fp-field">
+                <label className="form-label" htmlFor="fp-provider">
+                  Provider
+                </label>
+                <select
+                  id="fp-provider"
+                  className="form-select"
+                  value={repoForm.provider}
+                  onChange={(e) => repoForm.setProvider(e.target.value as RepoProvider)}
+                  disabled={isBuilding}
+                >
+                  {PROVIDER_OPTIONS.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="form-text">
+                  Select where the repo lives. We will map this to BinderHub build endpoints later.
+                </div>
+              </div>
+
+              <div className="fp-field">
+                <label className="form-label" htmlFor="fp-repo">
+                  Repository
+                </label>
+                <input
+                  id="fp-repo"
+                  className="form-control"
+                  value={repoForm.repo}
+                  onChange={(e) => repoForm.setRepo(e.target.value)}
+                  placeholder={providerPlaceholder(repoForm.provider)}
+                  disabled={isBuilding}
+                />
+              </div>
+
+              <div className="fp-field">
+                <label className="form-label" htmlFor="fp-ref">
+                  Ref (branch / tag / commit)
+                </label>
+                <input
+                  id="fp-ref"
+                  className="form-control"
+                  value={repoForm.ref}
+                  onChange={(e) => repoForm.setRef(e.target.value)}
+                  placeholder="main"
+                  disabled={isBuilding}
+                />
+              </div>
+
+              <div className="fp-field">
+                <label className="form-label" htmlFor="fp-subdir">
+                  Subdir (optional)
+                </label>
+                <input
+                  id="fp-subdir"
+                  className="form-control"
+                  value={repoForm.subdir}
+                  onChange={(e) => repoForm.setSubdir(e.target.value)}
+                  placeholder="path/inside/repo"
+                  disabled={isBuilding}
+                />
+              </div>
+
+              <div className="fp-field">
+                <label className="form-label" htmlFor="fp-filepath">
+                  File to open (optional)
+                </label>
+                <input
+                  id="fp-filepath"
+                  className="form-control"
+                  value={filepath}
+                  onChange={(e) => setFilepath(e.target.value)}
+                  placeholder="notebooks/demo.ipynb"
+                  disabled={isBuilding}
+                />
+              </div>
+            </div>
+
+            <div className="fp-binder-actions">
+              <button
+                type="button"
+                className="btn btn-jupyter fp-build-btn"
+                onClick={handleFakeBuild}
+                disabled={isBuilding}
+              >
+                {isBuilding ? "Building..." : "Build image"}
+              </button>
+
+              <div className="fp-binder-hint">
+                For now this only prints parameters and a placeholder log. Next step: wire BinderHub build + log streaming.
+              </div>
+            </div>
+
+            <div className="fp-terminal-wrap">
+              <div className="fp-terminal-title">Build log</div>
+              <pre ref={terminalRef} className="fp-terminal" aria-label="Build log">
+                {buildLog || "No logs yet."}
+              </pre>
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
