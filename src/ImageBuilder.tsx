@@ -1,3 +1,4 @@
+// src/ImageBuilder.tsx
 import * as React from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
@@ -7,10 +8,14 @@ export type BuildResult = {
   binderRef?: string;
 };
 
+type ProviderName = "gh" | "gl";
+
 type Props = {
-  repo: string;          // expected "org/repo" for GitHub
+  provider: ProviderName;
+  repo: string;          // expected "org/repo" (gh) or "group/project" (gl)
   gitRef: string;        // branch/tag/commit
-  fileToOpen?: string;   // optional, not used by build-only
+  subdir?: string;       // optional; appended to spec if set
+  fileToOpen?: string;   // optional; not used yet (UI only)
   onBuilt?: (res: BuildResult) => void;
 };
 
@@ -62,16 +67,25 @@ async function getOrCreateApiToken(): Promise<string> {
   return res.token;
 }
 
+function buildProviderSpec(provider: ProviderName, repo: string, ref: string, subdir?: string): string {
+  const base = `${provider}/${repo}/${ref}`;
+  const cleanSubdir = (subdir || "").trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!cleanSubdir) return base;
+  // binder supports specifying subdir via "path/to/repo" style for some providers,
+  // but behavior differs; keep it explicit and stable
+  return `${base}?subdir=${encodeURIComponent(cleanSubdir)}`;
+}
+
 async function buildImage(
+  provider: ProviderName,
   repo: string,
   ref: string,
+  subdir: string | undefined,
   term: Terminal,
   fitAddon: FitAddon,
 ): Promise<BuildResult> {
   const apiToken = await getOrCreateApiToken();
 
-  // binderhub-client v0.5.0 doesn't ship TS types here, so we load dynamically
-  // and keep the usage isolated to this function.
   const mod = (await import("@jupyterhub/binderhub-client/client.js")) as unknown as {
     BinderRepository: new (
       spec: string,
@@ -83,7 +97,7 @@ async function buildImage(
     };
   };
 
-  const providerSpec = `gh/${repo}/${ref}`;
+  const providerSpec = buildProviderSpec(provider, repo, ref, subdir);
 
   // Binder service is exposed under JupyterHub as /services/binder/
   const buildEndPointURL = new URL("/services/binder/build/", window.location.origin);
@@ -98,9 +112,7 @@ async function buildImage(
   term.writeln(`Endpoint: ${buildEndPointURL.toString()}`);
   term.writeln("");
 
-  // Stream build logs
   for await (const evt of image.fetch()) {
-    // binder events commonly contain "message" or "phase"
     const msg = (evt as { message?: unknown }).message;
     if (typeof msg === "string" && msg.length > 0) {
       term.writeln(msg);
@@ -116,9 +128,8 @@ async function buildImage(
     }
   }
 
-  const imageName = typeof image.imageName === "string" && image.imageName.length > 0
-    ? image.imageName
-    : "unknown";
+  const imageName =
+    typeof image.imageName === "string" && image.imageName.length > 0 ? image.imageName : "unknown";
 
   term.writeln("");
   term.writeln("Build finished.");
@@ -126,7 +137,7 @@ async function buildImage(
   return { imageName, binderRef: providerSpec };
 }
 
-export default function ImageBuilder({ repo, gitRef, onBuilt }: Props) {
+export default function ImageBuilder({ provider, repo, gitRef, subdir, onBuilt }: Props) {
   const termRef = React.useRef<Terminal | null>(null);
   const fitRef = React.useRef<FitAddon | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -164,7 +175,8 @@ export default function ImageBuilder({ repo, gitRef, onBuilt }: Props) {
     };
   }, []);
 
-  const canBuild = repo.trim().length > 0 && gitRef.trim().length > 0;
+  const canBuild =
+    provider.trim().length > 0 && repo.trim().length > 0 && gitRef.trim().length > 0;
 
   const onBuild = async () => {
     setError(null);
@@ -177,13 +189,20 @@ export default function ImageBuilder({ repo, gitRef, onBuilt }: Props) {
     }
 
     if (!canBuild) {
-      setError("Repository and ref are required.");
+      setError("Provider, repository and ref are required.");
       return;
     }
 
     setIsBuilding(true);
     try {
-      const result = await buildImage(repo.trim(), gitRef.trim(), term, fitAddon);
+      const result = await buildImage(
+        provider,
+        repo.trim(),
+        gitRef.trim(),
+        subdir?.trim() || undefined,
+        term,
+        fitAddon,
+      );
       if (onBuilt) onBuilt(result);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -217,4 +236,3 @@ export default function ImageBuilder({ repo, gitRef, onBuilt }: Props) {
     </div>
   );
 }
-
