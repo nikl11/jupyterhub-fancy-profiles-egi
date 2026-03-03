@@ -1,4 +1,5 @@
 const path = require("path");
+const webpack = require("webpack");
 
 module.exports = {
   mode: "production",
@@ -9,26 +10,25 @@ module.exports = {
     publicPath: "/hub/fancy-profiles/static/dist/",
   },
   resolve: {
-    extensions: [".tsx", ".ts", ".js"],
+    extensions: [".ts", ".tsx", ".js"],
   },
   module: {
     rules: [
       {
         test: /\.(ts|tsx)$/,
         exclude: /node_modules/,
-        use: [
-          {
-            loader: "ts-loader",
-            options: {
-              // Critical: do not typecheck the whole repo (it contains legacy broken TS)
-              transpileOnly: true,
-              // Compile only files that are part of the webpack bundle graph
-              onlyCompileBundledFiles: true,
-            },
+        use: {
+          loader: "ts-loader",
+          options: {
+            transpileOnly: true, // IMPORTANT: ignore TypeScript type errors from unrelated legacy files
           },
-        ],
+        },
       },
     ],
   },
-  devtool: false,
+  plugins: [
+    new webpack.DefinePlugin({
+      __JHFP_THEME__: JSON.stringify(process.env.JHFP_THEME || "egi"),
+    }),
+  ],
 };
