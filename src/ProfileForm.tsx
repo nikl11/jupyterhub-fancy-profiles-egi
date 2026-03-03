@@ -69,7 +69,7 @@ function ProfileCards(props: {
           })}
         </div>
 
-        {/* This is the field that actually gets submitted by JupyterHub spawn form */}
+        {/* This is the field JupyterHub spawn form reads */}
         <input type="hidden" name="profile" value={selectedSlug} />
       </div>
     </div>
@@ -243,6 +243,49 @@ function BuildAndLaunch(props: {
   );
 }
 
+function ensureFormField(name: string, value: string) {
+  // Try to set existing field (select/input/textarea). If not found, create a hidden input.
+  const el = document.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+    `[name="${CSS.escape(name)}"]`
+  );
+
+  if (el) {
+    // If multiple fields exist with same name, we want to set them all consistently.
+    const all = document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+      `[name="${CSS.escape(name)}"]`
+    );
+    all.forEach((node) => {
+      (node as any).value = value;
+    });
+    return;
+  }
+
+  const form = document.querySelector<HTMLFormElement>("form");
+  if (!form) return;
+
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = name;
+  input.value = value;
+  form.appendChild(input);
+}
+
+function renamePrimarySubmitButton(label: string) {
+  // Rename the first submit button inside the main form.
+  const form = document.querySelector<HTMLFormElement>("form");
+  if (!form) return;
+
+  const btn = form.querySelector<HTMLButtonElement>(`button[type="submit"], input[type="submit"]`);
+  if (!btn) return;
+
+  // Handle <input type="submit"> vs <button>
+  if (btn instanceof HTMLInputElement) {
+    btn.value = label;
+  } else {
+    btn.textContent = label;
+  }
+}
+
 export function App(props: Props) {
   const list = props.profileList ?? [];
   const initial = list.find((p) => p.default === true)?.slug ?? list[0]?.slug ?? "default";
@@ -251,13 +294,23 @@ export function App(props: Props) {
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
 
-  // IMPORTANT:
-  // These hidden fields emulate what the upstream fancy-profiles form submits for profile_options.image.
-  // This makes JupyterHub/KubeSpawner actually use the built image on Start.
-  const imageOptionField = `profile-option-${selectedSlug}--image`;
-  const imageUnlistedField = `profile-option-${selectedSlug}--image--unlisted-choice`;
+  // 1) Always rename the existing submit button to "Launch" (no duplicate buttons from React).
+  React.useEffect(() => {
+    renamePrimarySubmitButton("Launch");
+  }, []);
 
-  const useBuiltImage = Boolean(buildState.imageName);
+  // 2) When build succeeds, force the form fields that fancy-profiles/JupyterHub reads for image selection.
+  // This avoids being overwritten by an existing <select name="profile-option-...--image">.
+  React.useEffect(() => {
+    if (!buildState.imageName) return;
+
+    const imageChoiceField = `profile-option-${selectedSlug}--image`;
+    const imageUnlistedField = `profile-option-${selectedSlug}--image--unlisted-choice`;
+
+    // Select "unlisted_choice" and set the unlisted image value to the built imageName
+    ensureFormField(imageChoiceField, "unlisted_choice");
+    ensureFormField(imageUnlistedField, buildState.imageName);
+  }, [buildState.imageName, selectedSlug]);
 
   return (
     <div>
@@ -280,14 +333,8 @@ export function App(props: Props) {
         }}
       />
 
-      {/* Hidden fields consumed by fancy-profiles backend to set KubeSpawner.image */}
-      <input type="hidden" name={imageOptionField} value={useBuiltImage ? "unlisted_choice" : "default"} />
-      <input type="hidden" name={imageUnlistedField} value={useBuiltImage ? buildState.imageName : ""} />
-
-      {/* Keep the normal spawn submit */}
-      <button className="btn btn-jupyter form-control mt-3" type="submit">
-        Launch
-      </button>
+      {/* IMPORTANT: Do NOT render any submit button here.
+          The spawn template already provides one. We just rename it to "Launch". */}
     </div>
   );
 }
