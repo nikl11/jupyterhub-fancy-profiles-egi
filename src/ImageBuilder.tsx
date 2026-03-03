@@ -2,16 +2,14 @@ import * as React from "react";
 import { useRepositoryField, RepoProvider } from "./hooks/useRepositoryField";
 
 const PROVIDERS: Array<{ id: RepoProvider; label: string; hint: string }> = [
-  { id: "github", label: "GitHub", hint: "owner/repo" },
-  { id: "gitlab", label: "GitLab", hint: "group/project" },
+  { id: "github", label: "GitHub", hint: "owner/repo or https://github.com/owner/repo" },
+  { id: "gitlab", label: "GitLab", hint: "group/project or https://gitlab.com/group/project" },
   { id: "gist", label: "Gist", hint: "username/gist-id or gist-id" },
   { id: "zenodo", label: "Zenodo", hint: "record id (e.g. 1234567)" },
   { id: "other", label: "Other (git URL)", hint: "https://host/org/repo.git" },
 ];
 
 function toBinderProvider(p: RepoProvider): string {
-  // BinderHub build endpoint provider codes
-  // gh, gl, gist, zenodo, git
   switch (p) {
     case "github":
       return "gh";
@@ -33,6 +31,35 @@ function joinUrl(base: string, path: string) {
   return base + path;
 }
 
+function stripTrailingGit(s: string) {
+  return s.endsWith(".git") ? s.slice(0, -4) : s;
+}
+
+function normalizeRepoInput(provider: RepoProvider, input: string): string {
+  const raw = input.trim();
+  if (!raw) return raw;
+
+  if (provider === "github") {
+    const m = raw.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/.*)?$/i);
+    if (m) return `${m[1]}/${stripTrailingGit(m[2])}`;
+  }
+
+  if (provider === "gitlab") {
+    const m = raw.match(/^https?:\/\/gitlab\.[^/]+\/(.+)$/i);
+    if (m) {
+      const path = stripTrailingGit(m[1]).replace(/\/+$/, "");
+      return path;
+    }
+  }
+
+  if (provider === "gist") {
+    const m = raw.match(/^https?:\/\/gist\.github\.com\/([^/]+)\/([a-f0-9]+)(?:\/.*)?$/i);
+    if (m) return `${m[1]}/${m[2]}`;
+  }
+
+  return raw;
+}
+
 export function ImageBuilder() {
   const repo = useRepositoryField();
 
@@ -45,13 +72,10 @@ export function ImageBuilder() {
   const [logs, setLogs] = React.useState<string>("");
   const [imageName, setImageName] = React.useState<string>("");
 
+  const [logsOpen, setLogsOpen] = React.useState<boolean>(false);
+
   const esRef = React.useRef<EventSource | null>(null);
   const logRef = React.useRef<HTMLPreElement | null>(null);
-
-  React.useEffect(() => {
-    if (!logRef.current) return;
-    logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [logs]);
 
   React.useEffect(() => {
     return () => {
@@ -62,36 +86,42 @@ export function ImageBuilder() {
     };
   }, []);
 
+  React.useEffect(() => {
+    if (!logsOpen) return;
+    if (!logRef.current) return;
+    logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [logs, logsOpen]);
+
   function appendLog(line: string) {
     setLogs((prev) => (prev ? prev + "\n" + line : line));
+  }
+
+  function stopStream() {
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
   }
 
   function buildUrl(): string {
     const binderProvider = toBinderProvider(repo.provider);
 
-    const rawRepo = repo.repo.trim();
+    const normalizedRepo = normalizeRepoInput(repo.provider, repo.repo);
     const ref = (repo.ref || "HEAD").trim();
     const subdir = repo.subdir.trim();
 
-    if (!rawRepo) {
+    if (!normalizedRepo) {
       throw new Error("Repository is required.");
     }
 
-    // JupyterHub-service proxied Binder build endpoint:
-    //   /services/binder/build/<provider>/<spec>
-    //
-    // For gh/gl: <org>/<repo>/<ref>
-    // For gist: <username>/<id>/<ref> or <id>/<ref>
-    // For zenodo: <recordid>
-    // For git: <url-encoded-git-url> (optional ref via ?ref=)
     let specPath = "";
 
     if (binderProvider === "git") {
-      specPath = encodeURIComponent(rawRepo);
+      specPath = encodeURIComponent(normalizedRepo);
     } else if (binderProvider === "zenodo") {
-      specPath = encodeURIComponent(rawRepo);
+      specPath = encodeURIComponent(normalizedRepo);
     } else {
-      const parts = rawRepo.split("/").filter(Boolean).map(encodeURIComponent);
+      const parts = normalizedRepo.split("/").filter(Boolean).map(encodeURIComponent);
       const refPart = encodeURIComponent(ref);
       specPath = [...parts, refPart].join("/");
     }
@@ -106,18 +136,12 @@ export function ImageBuilder() {
     return qs ? `${url}?${qs}` : url;
   }
 
-  function stopStream() {
-    if (esRef.current) {
-      esRef.current.close();
-      esRef.current = null;
-    }
-  }
-
   function startBuild() {
     setError("");
     setLogs("");
     setImageName("");
     setStatus("building");
+    setLogsOpen(true);
 
     let url: string;
     try {
@@ -132,8 +156,6 @@ export function ImageBuilder() {
 
     stopStream();
 
-    // Important: EventSource must carry cookies (Hub auth). Most browsers do for same-origin.
-    // We still pass withCredentials for completeness.
     const es = new EventSource(url, { withCredentials: true });
     esRef.current = es;
 
@@ -170,7 +192,6 @@ export function ImageBuilder() {
         return;
       }
 
-      // Binder typically sends "ready" when the build is done (with imageName)
       if (phase === "ready" || phase === "built") {
         if (payload?.imageName) {
           setImageName(String(payload.imageName));
@@ -182,7 +203,6 @@ export function ImageBuilder() {
     };
 
     es.onerror = () => {
-      // Sometimes fires on normal close. Only mark as failed if we don't already have an image.
       if (imageName) return;
       setStatus("failed");
       setError("Connection error while streaming build logs.");
@@ -199,7 +219,7 @@ export function ImageBuilder() {
           <div>
             <h2 className="h4 mb-0">Repository</h2>
             <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-              Build an image using BinderHub and stream logs below.
+              Select a provider, enter a repository and build an image using BinderHub.
             </div>
           </div>
           <span className="badge text-bg-secondary">
@@ -255,47 +275,51 @@ export function ImageBuilder() {
           </div>
         </div>
 
-        <details className="mt-3">
-          <summary className="text-muted">Advanced</summary>
+        <div className="row g-2 mt-2">
+          <div className="col-12 col-md-6">
+            <label className="form-label">Subdirectory (optional)</label>
+            <input
+              className="form-control"
+              value={repo.subdir}
+              onChange={(e) => repo.setSubdir(e.target.value)}
+              placeholder="path/inside/repo"
+              autoComplete="off"
+              spellCheck={false}
+              disabled={isBuilding}
+            />
+            <div className="form-text">Build only a subdirectory inside the repo.</div>
+          </div>
+        </div>
 
-          <div className="row g-2 mt-2">
-            <div className="col-12 col-md-6">
-              <label className="form-label">Subdirectory</label>
-              <input
-                className="form-control"
-                value={repo.subdir}
-                onChange={(e) => repo.setSubdir(e.target.value)}
-                placeholder="path/inside/repo"
-                autoComplete="off"
-                spellCheck={false}
+        {/* Build & launch (single source of truth for build + logs) */}
+        <div className="card mt-3">
+          <div className="card-body">
+            <h3 className="h5 mb-2">Build &amp; launch</h3>
+
+            <div className="d-flex gap-2 align-items-center flex-wrap">
+              <button
+                type="button"
+                className="btn btn-outline-primary"
+                onClick={startBuild}
                 disabled={isBuilding}
-              />
-              <div className="form-text">Optional.</div>
+              >
+                {isBuilding ? "Building..." : "Build image"}
+              </button>
+
+              <button
+                type="button"
+                className="btn btn-outline-secondary"
+                onClick={() => setLogsOpen((v) => !v)}
+              >
+                {logsOpen ? "Hide logs" : "Open logs"}
+              </button>
+
+              {imageName ? <span className="badge text-bg-success">imageName set</span> : null}
             </div>
 
-            <div className="col-12 col-md-6">
-              <label className="form-label">Build</label>
-              <div className="d-flex gap-2 align-items-center flex-wrap">
-                <button
-                  type="button"
-                  className="btn btn-outline-primary btn-sm"
-                  onClick={startBuild}
-                  disabled={isBuilding}
-                >
-                  {isBuilding ? "Building..." : "Build image"}
-                </button>
-                {isBuilding ? (
-                  <button type="button" className="btn btn-outline-secondary btn-sm" onClick={stopStream}>
-                    Stop stream
-                  </button>
-                ) : null}
-                {imageName ? <span className="badge text-bg-success">imageName set</span> : null}
-              </div>
+            {error ? <div className="mt-2 alert alert-danger py-2 mb-0">{error}</div> : null}
 
-              {error ? (
-                <div className="mt-2 alert alert-danger py-2 mb-0">{error}</div>
-              ) : null}
-
+            {logsOpen ? (
               <div className="mt-2">
                 <pre
                   ref={logRef}
@@ -304,16 +328,16 @@ export function ImageBuilder() {
                 >
 {logs || "Logs will appear here once build starts."}
                 </pre>
-              </div>
 
-              {imageName ? (
-                <div className="mt-2 text-muted" style={{ fontSize: "0.9rem" }}>
-                  Built image: <code>{imageName}</code>
-                </div>
-              ) : null}
-            </div>
+                {imageName ? (
+                  <div className="mt-2 text-muted" style={{ fontSize: "0.9rem" }}>
+                    Built image: <code>{imageName}</code>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
-        </details>
+        </div>
       </div>
     </div>
   );
