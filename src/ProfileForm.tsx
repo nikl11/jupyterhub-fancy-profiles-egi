@@ -1,112 +1,150 @@
-import { useContext, useMemo, useState } from "react";
+import * as React from "react";
+import { ImageBuilder } from "./ImageBuilder";
 
+type Profile = {
+  slug: string;
+  display_name: string;
+  description?: string;
+  default?: boolean;
+  profile_options?: Record<string, any>;
+};
 
-import { SpawnerFormContext } from "./state";
-import { PermalinkContext } from "./context/Permalink";
-import { IProfile } from "./types/config";
-import { ProfileOptions } from "./ProfileOptions";
-import Permalink from "./components/Permalink";
+type Props = {
+  profileList: Profile[];
+};
 
-function ProfileRadio({
-  profile,
-  checked,
-  onChange,
-}: {
-  profile: IProfile;
-  checked: boolean;
-  onChange: () => void;
-}) {
-  const title = profile.display_name;
-  const desc = profile.description ?? "";
-  return (
-    <label className="profile-card" style={{ cursor: "pointer" }}>
-      <div className="profile-card__main">
-        <input
-          type="radio"
-          name="profile-select"
-          aria-label={`${title}${desc ? " " + desc : ""}`}
-          checked={checked}
-          onChange={onChange}
-        />
-        <div className="profile-card__text">
-          <div className="profile-card__title">{title}</div>
-          {desc ? <div className="profile-card__desc">{desc}</div> : null}
-        </div>
-      </div>
-    </label>
-  );
-}
+type Mode = "prebuilt" | "build";
 
-function getDefaultProfileSlug(profileList: IProfile[]) {
-  return profileList.find((p) => p.default)?.slug ?? profileList[0]?.slug ?? "";
-}
+export default function App({ profileList }: Props) {
+  const defaultProfile =
+    profileList.find((p) => p.default === true) || profileList[0];
 
-export default function ProfileForm() {
-  const { profileList, profile, setProfile } = useContext(SpawnerFormContext);
-  const { permalinkValues, permalinkParseError, setPermalinkValue } = useContext(PermalinkContext);
-
-  const defaultSlug = useMemo(() => getDefaultProfileSlug(profileList), [profileList]);
-
-  const permalinkProfile = permalinkValues["profile"];
-  const initialSlug =
-    permalinkProfile && profileList.some((p) => p.slug === permalinkProfile) ? permalinkProfile : defaultSlug;
-
-  const [selectedSlug, setSelectedSlug] = useState<string>(initialSlug);
-
-  const selectedProfile = useMemo(
-    () => profileList.find((p) => p.slug === selectedSlug) ?? null,
-    [profileList, selectedSlug],
+  const [selectedSlug, setSelectedSlug] = React.useState<string>(
+    defaultProfile?.slug ?? "",
   );
 
-  if (selectedProfile && profile?.slug !== selectedProfile.slug) {
-    setProfile(selectedProfile);
-  }
-  if (selectedProfile) {
-    setPermalinkValue("profile", selectedProfile.slug);
+  const [mode, setMode] = React.useState<Mode>("prebuilt");
+
+  const selectedProfile = React.useMemo(() => {
+    return profileList.find((p) => p.slug === selectedSlug) || defaultProfile;
+  }, [profileList, selectedSlug, defaultProfile]);
+
+  if (!profileList || profileList.length === 0) {
+    return (
+      <div className="alert alert-warning">
+        No profiles available. Check spawner profile_list configuration.
+      </div>
+    );
   }
 
-  const handleSelect = (slug: string) => {
-    setSelectedSlug(slug);
-    const p = profileList.find((x) => x.slug === slug) ?? null;
-    setProfile(p);
-    setPermalinkValue("profile", slug);
-  };
+  if (!selectedProfile) {
+    return (
+      <div className="alert alert-warning">
+        Selected profile not found.
+      </div>
+    );
+  }
 
   return (
-    <div>
-      {permalinkParseError ? (
-        <div className="alert alert-warning" role="alert">
-          Invalid permalink config. Some saved values could not be restored.
+    <div className="jhfp-page">
+      <div className="jhfp-header">
+        <h2 className="jhfp-title">Server Options</h2>
+        <div className="text-muted" style={{ fontSize: "0.95rem" }}>
+          Choose resources and optionally build your own image.
         </div>
-      ) : null}
-
-      <div className="d-flex align-items-center justify-content-between mb-2">
-        <h2 className="h5 mb-0">Choose your environment</h2>
-        <Permalink />
       </div>
 
-      <div className="profile-list">
-        {profileList.map((p) => (
-          <ProfileRadio
-            key={p.slug}
-            profile={p}
-            checked={p.slug === selectedSlug}
-            onChange={() => handleSelect(p.slug)}
-          />
-        ))}
-      </div>
+      <div className="jhfp-card">
+        <div className="jhfp-mode" role="tablist" aria-label="Mode switch">
+          <button
+            type="button"
+            className={`btn btn-sm btn-outline-secondary ${mode === "prebuilt" ? "active" : ""}`}
+            onClick={() => setMode("prebuilt")}
+          >
+            Use prebuilt environment
+          </button>
 
-      <input type="hidden" name="profile" value={selectedProfile?.slug ?? ""} />
-
-      {selectedProfile?.profile_options ? (
-        <div className="mt-3">
-          <ProfileOptions profile={selectedProfile.slug} config={selectedProfile.profile_options} />
+          <button
+            type="button"
+            className={`btn btn-sm btn-outline-secondary ${mode === "build" ? "active" : ""}`}
+            onClick={() => setMode("build")}
+          >
+            Build your own image
+          </button>
         </div>
-      ) : null}
 
-      <button className="btn btn-jupyter form-control mt-4" type="submit">
-        Launch
-      </button>
+        <div className="jhfp-grid">
+          {/* LEFT: core component - server options (profiles) */}
+          <div>
+            <div className="mb-2 fw-semibold">Environment size</div>
+
+            <div className="jhfp-profile-list">
+              {profileList.map((p) => {
+                const active = p.slug === selectedProfile.slug;
+                return (
+                  <div
+                    key={p.slug}
+                    className={`jhfp-profile-item ${active ? "active" : ""}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedSlug(p.slug)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") setSelectedSlug(p.slug);
+                    }}
+                    aria-pressed={active}
+                  >
+                    <p className="jhfp-profile-name">{p.display_name}</p>
+                    <p className="jhfp-profile-desc">{p.description || " "}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Hidden field that is actually submitted to JupyterHub */}
+            <input
+              type="radio"
+              className="hidden"
+              name="profile"
+              value={selectedProfile.slug}
+              checked
+              readOnly
+            />
+          </div>
+
+          {/* RIGHT: mode-dependent content */}
+          <div>
+            {mode === "prebuilt" ? (
+              <div>
+                <div className="mb-2 fw-semibold">Summary</div>
+
+                <div className="p-3 border rounded bg-body-tertiary">
+                  <div className="fw-semibold">{selectedProfile.display_name}</div>
+                  <div className="text-muted" style={{ fontSize: "0.95rem" }}>
+                    {selectedProfile.description || "No description."}
+                  </div>
+
+                  <hr />
+
+                  <div className="text-muted" style={{ fontSize: "0.95rem" }}>
+                    Profile options wiring comes next (dynamic form per profile_options).
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="mb-2 fw-semibold">Build your own image</div>
+                <ImageBuilder />
+              </div>
+            )}
+
+            <div className="jhfp-footer">
+              <button className="btn jhfp-primary-btn" type="submit">
+                Launch
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
