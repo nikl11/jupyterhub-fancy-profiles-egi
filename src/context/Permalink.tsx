@@ -27,7 +27,7 @@ export const PermalinkProvider = ({ children }: PropsWithChildren) => {
       try {
         return JSON.parse(formConfig);
       } catch (e) {
-        #console.error("Error parsing form config", e);
+        console.error("Error parsing form config", e);
         setPermalinkParseError(true);
       }
     }

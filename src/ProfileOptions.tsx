@@ -32,7 +32,7 @@ export function ProfileOptions(props: Props) {
             <details className="mt-2">
               <summary className="text-muted">Raw profile_options (debug)</summary>
               <pre className="mt-2 mb-0 p-2 border rounded bg-body-tertiary" style={{ maxHeight: 240, overflow: "auto" }}>
-                {JSON.stringify(config ?? {}, null, 2)}
+{JSON.stringify(config ?? {}, null, 2)}
               </pre>
             </details>
           </div>
