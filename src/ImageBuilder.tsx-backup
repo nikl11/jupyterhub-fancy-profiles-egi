@@ -1,116 +1,319 @@
-import * as React from "react";
-import { useRepositoryField, RepoProvider } from "./hooks/useRepositoryField";
+import { useEffect, useState, useRef, useContext, useMemo, KeyboardEventHandler } from "react";
+import { type Terminal } from "xterm";
+import { type FitAddon } from "xterm-addon-fit";
 
-const PROVIDERS: Array<{ id: RepoProvider; label: string; hint: string }> = [
-  { id: "github", label: "GitHub", hint: "owner/repo" },
-  { id: "gitlab", label: "GitLab", hint: "group/project" },
-  { id: "gist", label: "Gist", hint: "username/gist-id or gist-id" },
-  { id: "zenodo", label: "Zenodo", hint: "record id (e.g. 1234567)" },
-  { id: "other", label: "Other", hint: "any identifier" },
-];
+import useRepositoryField from "./hooks/useRepositoryField";
+import Combobox from "./components/form/Combobox";
+import useFormCache from "./hooks/useFormCache";
+import { PermalinkContext } from "./context/Permalink";
+import { ICustomOptionProps } from "./types/fields";
 
-export function ImageBuilder() {
-  const repo = useRepositoryField();
+const TOKEN_KEY = "jupytherhub-build-token";
 
-  const providerMeta = React.useMemo(() => {
-    return PROVIDERS.find((p) => p.id === repo.provider) ?? PROVIDERS[0];
-  }, [repo.provider]);
+async function getApiToken () {
+  const xsrfToken = (`; ${document.cookie}`).split("; _xsrf=").pop().split(";")[0];
+  const userResponse = await fetch(`/hub/api/user?_xsrf=${xsrfToken}`);
+  const { name } = await userResponse.json();
+
+  const exisitingToken = localStorage.getItem(TOKEN_KEY);
+  if (exisitingToken) {
+    const { id, expires_at, token } = JSON.parse(exisitingToken);
+    const expiryDate = Date.parse(expires_at);
+    const isExpired = expiryDate < new Date().getTime();
+
+    if (isExpired) {
+      // Token is expired, deleting from server and localStorage
+      localStorage.removeItem(TOKEN_KEY);
+      await fetch(`/hub/api/users/${name}/tokens/${id}?_xsrf=${xsrfToken}`, {
+        method: "DELETE"
+      });
+    } else {
+      return token;
+    }
+  }
+
+  // No token or token is expired, requesting a new token
+  const tokenResponse = await fetch(`/hub/api/users/${name}/tokens?_xsrf=${xsrfToken}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      expires_in: 3600,
+      note: "Created by Fancy Profiles for Build your Own Image"
+    }),
+    credentials: "include"
+  });
+  const res = await tokenResponse.json();
+  localStorage.setItem(TOKEN_KEY, JSON.stringify(res));
+  return res.token;
+}
+
+async function buildImage(
+  repo: string,
+  ref: string,
+  term: Terminal,
+  fitAddon: FitAddon,
+) {
+  const apiToken = await getApiToken();
+
+  // @ts-expect-error - v0.5.0 client types not available
+  const { BinderRepository } = await import("@jupyterhub/binderhub-client/client.js");
+  const providerSpec = "gh/" + repo + "/" + ref;
+  // FIXME: Assume the binder api is available in the same hostname, under /services/binder/
+  const buildEndPointURL = new URL(
+    "/services/binder/build/",
+    window.location.origin,
+  );
+
+  // Use new v0.5.0 API with options object - only apiToken needed for auth
+  const image = new BinderRepository(
+    providerSpec,
+    buildEndPointURL,
+    {
+      apiToken,     // JupyterHub API token for Authorization header
+      buildOnly: true,
+    }
+  );
+  // Clear the last line written, so we start from scratch
+  term.write("\x1b[2K\r");
+  term.resize(66, 16);
+  fitAddon.fit();
+
+  for await (const data of image.fetch()) {
+    // Write message to the log terminal if there is a message
+    if (data.message !== undefined) {
+      // Write out all messages to the terminal!
+      term.write(data.message);
+      // Resize our terminal to make sure it fits messages appropriately
+      fitAddon.fit();
+    } else {
+      console.log(data);
+    }
+
+    switch (data.phase) {
+      case "failed": {
+        image.close();
+        return Promise.reject();
+      }
+      case "ready": {
+        // Close the EventStream when the image has been built
+        image.close();
+        return Promise.resolve(data.imageName);
+      }
+      default: {
+        console.log("Unknown phase in response from server");
+        console.log(data);
+        break;
+      }
+    }
+  }
+}
+
+interface IImageLogs {
+  setTerm: React.Dispatch<React.SetStateAction<Terminal>>;
+  setFitAddon: React.Dispatch<React.SetStateAction<FitAddon>>;
+  name: string;
+}
+
+function ImageLogs({ setTerm, setFitAddon, name }: IImageLogs) {
+  const terminalId = `${name}--terminal`;
+  useEffect(() => {
+    async function setup() {
+      const { Terminal } = await import("xterm");
+      const { FitAddon } = await import("xterm-addon-fit");
+      const term = new Terminal({
+        convertEol: true,
+        disableStdin: true,
+        // 60 cols is pretty small, but unfortunately we have very limited width
+        // available in our form!
+        cols: 66,
+        rows: 1,
+        // Increase scrollback since image builds can sometimes produce a ton of output
+        scrollback: 10000,
+        // colors checked with the contrast checker at https://webaim.org/resources/contrastchecker/
+        theme: {
+          red: "\x1b[38;2;248;113;133m",
+          green: "\x1b[38;2;134;239;172m",
+          yellow: "\x1b[38;2;253;224;71m",
+          blue: "\x1b[38;2;147;197;253m",
+          magenta: "\x1b[38;2;249;168;212m",
+          cyan: "\x1b[38;2;103;232;249m",
+        },
+      });
+      const fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(document.getElementById(terminalId));
+      fitAddon.fit();
+      setTerm(term);
+      setFitAddon(fitAddon);
+      term.write("Logs will appear here when image is being built");
+    }
+    setup();
+  }, []);
 
   return (
-    <div className="card mb-3">
-      <div className="card-body">
-        <div className="d-flex align-items-center justify-content-between mb-2">
-          <div>
-            <h2 className="h4 mb-0">Repository</h2>
-            <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-              Select a source and fill repository details (visual-only for now).
-            </div>
-          </div>
-          <span className="badge text-bg-secondary">Preview</span>
-        </div>
-
-        <div className="row g-2">
-          <div className="col-12 col-md-3">
-            <label className="form-label">Provider</label>
-            <select
-              className="form-select"
-              value={repo.provider}
-              onChange={(e) => repo.setProvider(e.target.value as RepoProvider)}
-            >
-              {PROVIDERS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="col-12 col-md-6">
-            <label className="form-label">Repository</label>
-            <input
-              className="form-control"
-              value={repo.repo}
-              onChange={(e) => repo.setRepo(e.target.value)}
-              placeholder={providerMeta.hint}
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <div className="form-text">
-              Example: <code>{providerMeta.hint}</code>
-            </div>
-          </div>
-
-          <div className="col-12 col-md-3">
-            <label className="form-label">Ref</label>
-            <input
-              className="form-control"
-              value={repo.ref}
-              onChange={(e) => repo.setRef(e.target.value)}
-              placeholder="branch / tag / commit"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <div className="form-text">Optional.</div>
-          </div>
-        </div>
-
-        <details className="mt-3">
-          <summary className="text-muted">Advanced</summary>
-
-          <div className="row g-2 mt-2">
-            <div className="col-12 col-md-6">
-              <label className="form-label">Subdirectory</label>
-              <input
-                className="form-control"
-                value={repo.subdir}
-                onChange={(e) => repo.setSubdir(e.target.value)}
-                placeholder="path/inside/repo"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <div className="form-text">Optional.</div>
-            </div>
-
-            <div className="col-12 col-md-6">
-              <label className="form-label">Build status</label>
-              <div className="p-2 border rounded bg-body-tertiary">
-                <div className="d-flex align-items-center justify-content-between">
-                  <div>
-                    <div className="fw-semibold">Not started</div>
-                    <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-                      Wiring to Binder build comes next.
-                    </div>
-                  </div>
-                  <button type="button" className="btn btn-outline-secondary btn-sm" disabled>
-                    Build
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </details>
-      </div>
+    <div className="terminal-container border">
+      <div id={terminalId} />
     </div>
   );
 }
 
+export function ImageBuilder({ name, isActive, optionKey }: ICustomOptionProps) {
+  const { setPermalinkValue, permalinkValues } = useContext(PermalinkContext);
+
+  const repoRef = permalinkValues[`${optionKey}:ref`];
+  const binderRepo= permalinkValues[`${optionKey}:binderRepo`];
+  const { repo, repoId, repoFieldProps, repoError } =
+    useRepositoryField(binderRepo);
+  const { getRepositoryOptions, getRefOptions, removeRefOption, removeRepositoryOption } = useFormCache();
+
+  const [ref, setRef] = useState<string>(repoRef || "HEAD");
+  const repoFieldRef = useRef<HTMLInputElement>();
+  const branchFieldRef = useRef<HTMLInputElement>();
+
+  const [customImage, setCustomImage] = useState<string>("");
+  const [customImageError, setCustomImageError] = useState<string>(null);
+
+  const [term, setTerm] = useState<Terminal>(null);
+  const [fitAddon, setFitAddon] = useState<FitAddon>(null);
+
+  const [isBuildingImage, setIsBuildingImage] = useState<boolean>(false);
+
+  const repositoryOptions = getRepositoryOptions(name);
+  const refOptions = useMemo(() => {
+    return getRefOptions(name, repoId);
+  }, [repoId]);
+
+  useEffect(() => {
+    if (!isActive) setCustomImageError("");
+  }, [isActive]);
+
+  if (isActive) {
+    setPermalinkValue(`${optionKey}:binderProvider`, "gh");
+    setPermalinkValue(`${optionKey}:binderRepo`, repoId);
+    setPermalinkValue(`${optionKey}:ref`, ref);
+  }
+
+  const handleBuildStart = async () => {
+    if (repoFieldRef.current && !repo) {
+      repoFieldRef.current.focus();
+      repoFieldRef.current.blur();
+      return;
+    }
+
+    if (branchFieldRef.current && !ref) {
+      branchFieldRef.current.focus();
+      branchFieldRef.current.blur();
+      return;
+    }
+
+    setIsBuildingImage(true);
+    buildImage(repoId, ref, term, fitAddon)
+      .then((imageName) => {
+        setCustomImage(imageName);
+        term.write(
+          "\nImage has been built! Click the start button to launch your server",
+        );
+      })
+      .catch(() => console.log("Error building image."))
+      .finally(() => setIsBuildingImage(false));
+  };
+
+  const handleKeyDown: KeyboardEventHandler<HTMLInputElement> = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      (e.target as HTMLInputElement).blur();
+      handleBuildStart();
+    }
+  };
+
+  // We render everything, but only toggle visibility based on wether we are being
+  // shown or hidden. This provides for more DOM stability, and also allows the image
+  // to continue being built evn if the user moves away elsewhere. When hidden, we just
+  // don't generate the hidden input that posts the built image out.
+  return (
+    <>
+      <div className="profile-option-container">
+        <div className="profile-option-label-container">Provider</div>
+        <div className="profile-option-control-container">GitHub</div>
+      </div>
+
+      <Combobox
+        id={`${name}--repo`}
+        className={isActive ? "cache-repository" : undefined}
+        label="Repository"
+        ref={repoFieldRef}
+        {...repoFieldProps}
+        error={repoError}
+        options={repositoryOptions}
+        autoComplete="off"
+        onRemoveOption={(option) => removeRepositoryOption(name, option)}
+        validate={
+          isActive && {
+            required: "Provide the repository as the format 'organization/repository'.",
+          }
+        }
+        onKeyDown={handleKeyDown}
+      />
+      <Combobox
+        id={`${name}--ref`}
+        label="Git Ref"
+        ref={branchFieldRef}
+        hint="Branch, Tag or Commit to use. HEAD will use the default branch"
+        value={ref}
+        validate={
+          isActive && {
+            required: "Enter a git ref.",
+          }
+        }
+        onChange={(e) => setRef(e.target.value)}
+        onBlur={(e) => {
+          setRef(e.target.value.trim());
+        }}
+        tabIndex={isActive ? 0 : -1}
+        options={refOptions}
+        autoComplete="off"
+        onRemoveOption={(option) => {
+          removeRefOption(name, repoFieldProps.value, option);
+        }}
+      />
+
+      <div className="right-button">
+        <button
+          type="button"
+          className="btn btn-jupyter"
+          onClick={handleBuildStart}
+          disabled={isBuildingImage}
+        >
+          Build image
+        </button>
+      </div>
+      <input
+        type="text"
+        name={name}
+        value={customImage}
+        aria-invalid={isActive && !customImage}
+        required={isActive}
+        aria-hidden="true"
+        style={{ display: "none" }}
+        onInvalid={() =>
+          setCustomImageError("Wait for the image build to complete.")}
+        onChange={() => {}} // Hack to prevent a console error, while at the same time allowing for this field to be validatable, ie. not making it read-only
+      />
+      <div className="profile-option-container">
+        <div className="profile-option-label-container">
+          <b>Build Logs</b>
+        </div>
+        <div className="profile-option-control-container">
+          <ImageLogs setFitAddon={setFitAddon} setTerm={setTerm} name={name} />
+          {customImageError && (
+            <div className="invalid-feedback d-block">
+              {customImageError}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
