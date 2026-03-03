@@ -17,7 +17,7 @@ function Permalink() {
       <div>Copied to clipboard</div>
     ) : (
       <button type="button" className="btn btn-link p-0" onClick={handleButtonClick}>
-        Permalink
+        Permalink_zz
       </button>
     )
   );

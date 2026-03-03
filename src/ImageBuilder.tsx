@@ -2,7 +2,7 @@ import * as React from "react";
 import { useRepositoryField, RepoProvider } from "./hooks/useRepositoryField";
 
 const PROVIDERS: Array<{ id: RepoProvider; label: string; hint: string }> = [
-  { id: "github", label: "GitHubb", hint: "owner/repo" },
+  { id: "github", label: "GitHub", hint: "owner/repo" },
   { id: "gitlab", label: "GitLab", hint: "group/project" },
   { id: "gist", label: "Gist", hint: "username/gist-id or gist-id" },
   { id: "zenodo", label: "Zenodo", hint: "record id (e.g. 1234567)" },
