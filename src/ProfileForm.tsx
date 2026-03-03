@@ -187,8 +187,6 @@ function BuildAndLaunch(props: {
       <div className="card-body">
         <h3 className="h5 mb-2">Build &amp; launch</h3>
 
-        {/* Removed: "Buttons below are visual-only for now." */}
-
         <div className="d-flex gap-2 align-items-center flex-wrap">
           <button
             type="button"
@@ -209,14 +207,12 @@ function BuildAndLaunch(props: {
           <button
             type="button"
             className="btn btn-outline-secondary"
-            onClick={buildControls.openLogs}
+            onClick={buildControls.toggleLogs}
           >
-            Open logs
+            {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
 
-          {buildState.imageName ? (
-            <span className="badge text-bg-success">imageName set</span>
-          ) : null}
+          {buildState.imageName ? <span className="badge text-bg-success">imageName set</span> : null}
         </div>
 
         {buildState.error ? (
@@ -240,8 +236,6 @@ function BuildAndLaunch(props: {
             ) : null}
           </div>
         ) : null}
-
-        {/* The actual spawn (submit) button stays elsewhere in your form/page */}
       </div>
     </div>
   );
@@ -254,20 +248,13 @@ export function App(props: Props) {
 
   const [selectedSlug, setSelectedSlug] = React.useState<string>(initial);
 
-  // Repository fields live in ProfileForm (so Build & launch buttons here can use them).
   const repoState = useRepositoryField();
-
-  // Binder build logic (SSE streaming) – UI is in this file.
   const [buildState, buildControls] = useBinderBuild();
 
   return (
     <div>
       <ProfileCards
-        profileList={
-          list.length
-            ? list
-            : [{ slug: "default", display_name: "Default", default: true }]
-        }
+        profileList={list.length ? list : [{ slug: "default", display_name: "Default", default: true }]}
         selectedSlug={selectedSlug}
         onSelect={setSelectedSlug}
       />
@@ -284,8 +271,6 @@ export function App(props: Props) {
           subdir: repoState.subdir,
         }}
       />
-
-      {/* Keep your existing Start/submit button wherever it already is in your UI */}
     </div>
   );
 }
