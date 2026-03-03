@@ -26,8 +26,6 @@ export type BinderBuildControls = {
 };
 
 function toBinderProvider(p: RepoProvider): string {
-  // BinderHub build endpoint provider codes
-  // gh, gl, gist, zenodo, git
   switch (p) {
     case "github":
       return "gh";
@@ -57,7 +55,6 @@ function normalizeRepoInput(provider: RepoProvider, input: string): string {
   const raw = input.trim();
   if (!raw) return raw;
 
-  // Allow pasting full URLs for GitHub/GitLab/Gist and normalize to the expected spec.
   if (provider === "github") {
     const m = raw.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/.*)?$/i);
     if (m) return `${m[1]}/${stripTrailingGit(m[2])}`;
@@ -95,17 +92,20 @@ function buildBinderUrl(args: {
     throw new Error("Repository is required.");
   }
 
-  // /services/binder/build/<provider>/<spec>
+  // /services/binder/build/<provider_prefix>/<spec>
+  // NOTE:
+  // - gh/gl/gist: <repo>/<ref>
+  // - zenodo: <record_id>
+  // - git: <url-escaped-url>/<ref>   <-- IMPORTANT (ref is part of the path)
   let specPath = "";
 
   if (binderProvider === "git") {
-    // For git provider, Binder expects a URL-encoded git URL as a single segment.
-    specPath = encodeURIComponent(normalizedRepo);
+    const urlPart = encodeURIComponent(normalizedRepo);
+    const refPart = encodeURIComponent(ref);
+    specPath = `${urlPart}/${refPart}`;
   } else if (binderProvider === "zenodo") {
-    // For zenodo, it's typically a record id.
     specPath = encodeURIComponent(normalizedRepo);
   } else {
-    // For gh/gl/gist: keep slashes; encode segments.
     const parts = normalizedRepo.split("/").filter(Boolean).map(encodeURIComponent);
     const refPart = encodeURIComponent(ref);
     specPath = [...parts, refPart].join("/");
@@ -113,7 +113,6 @@ function buildBinderUrl(args: {
 
   const params = new URLSearchParams();
   if (subdir) params.set("subdir", subdir);
-  if (binderProvider === "git" && args.ref && args.ref.trim()) params.set("ref", args.ref.trim());
 
   const base = "/services/binder";
   const url = joinUrl(base, `/build/${binderProvider}/${specPath}`);
@@ -177,7 +176,6 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
 
     stopStream();
 
-    // SSE must carry Hub auth cookies. Same-origin usually does; withCredentials is best-effort.
     const es = new EventSource(url, { withCredentials: true });
     esRef.current = es;
 
@@ -214,7 +212,6 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
         return;
       }
 
-      // Binder typically ends with "ready" (and includes imageName).
       if (phase === "ready" || phase === "built") {
         if (payload?.imageName) {
           setImageName(String(payload.imageName));
@@ -226,7 +223,6 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
     };
 
     es.onerror = () => {
-      // Sometimes fires on normal close. Mark failed only if we don't already have an image.
       if (imageName) return;
       setStatus("failed");
       setError("Connection error while streaming build logs.");
