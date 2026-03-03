@@ -114,7 +114,7 @@ function OptionsPreview(props: { selectedSlug: string }) {
         </div>
 
         <button className="btn btn-jupyter form-control mt-3" type="submit">
-          Start ZzZzZzZz
+          Start_ZzZzZzZz
         </button>
       </div>
     </div>
