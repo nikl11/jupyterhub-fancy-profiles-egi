@@ -1,7 +1,7 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 
-import ProfileForm, { type Profile } from "./ProfileForm";
+import App from "./ProfileForm";
 import { GLOBAL_CSS } from "./styles";
 import { applyThemeClass } from "./theme";
 
@@ -15,30 +15,23 @@ function injectGlobalCss(cssText: string) {
   document.head.appendChild(el);
 }
 
-function readWindowProfileList(): Profile[] {
-  const w = window as unknown as { profileList?: unknown };
-  const list = w.profileList;
-
-  if (!Array.isArray(list)) return [];
-
-  // Minimal runtime validation
-  return list
-    .filter((p) => typeof p === "object" && p !== null)
-    .map((p) => p as Profile);
+function getProfileList(): any[] {
+  const list = (window as any).profileList;
+  return Array.isArray(list) ? list : [];
 }
 
 const rootEl = document.getElementById("form");
+
 if (rootEl) {
   injectGlobalCss(GLOBAL_CSS);
   applyThemeClass();
 
-  const profileList = readWindowProfileList();
+  const profileList = getProfileList();
 
   const root = createRoot(rootEl);
   root.render(
     <React.StrictMode>
-      <ProfileForm profileList={profileList} />
+      <App profileList={profileList} />
     </React.StrictMode>,
   );
 }
-
