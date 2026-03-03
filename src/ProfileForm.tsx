@@ -69,7 +69,7 @@ function ProfileCards(props: {
           })}
         </div>
 
-        {/* Field that JupyterHub uses */}
+        {/* This is the field that actually gets submitted by JupyterHub spawn form */}
         <input type="hidden" name="profile" value={selectedSlug} />
       </div>
     </div>
@@ -86,7 +86,7 @@ function RepositoryForm(props: {
     { id: "github", label: "GitHub", hint: "owner/repo or https://github.com/owner/repo" },
     { id: "gitlab", label: "GitLab", hint: "group/project or https://gitlab.com/group/project" },
     { id: "gist", label: "Gist", hint: "username/gist-id or gist-id" },
-    { id: "zenodo", label: "Zenodo", hint: "record id (e.g. 1234567)" },
+    { id: "zenodo", label: "Zenodo", hint: "record id or DOI (e.g. 10.5281/zenodo.1234567)" },
     { id: "other", label: "Other (git URL)", hint: "https://host/org/repo.git" },
   ];
 
@@ -183,7 +183,7 @@ function BuildAndLaunch(props: {
   }, [buildState.logs, buildState.logsOpen]);
 
   return (
-    <div className="card">
+    <div className="card mb-3">
       <div className="card-body">
         <h3 className="h5 mb-2">Build &amp; launch</h3>
 
@@ -212,7 +212,9 @@ function BuildAndLaunch(props: {
             {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
 
-          {buildState.imageName ? <span className="badge text-bg-success">imageName set</span> : null}
+          {buildState.imageName ? (
+            <span className="badge text-bg-success">image ready</span>
+          ) : null}
         </div>
 
         {buildState.error ? (
@@ -243,13 +245,19 @@ function BuildAndLaunch(props: {
 
 export function App(props: Props) {
   const list = props.profileList ?? [];
-  const initial =
-    list.find((p) => p.default === true)?.slug ?? list[0]?.slug ?? "default";
-
+  const initial = list.find((p) => p.default === true)?.slug ?? list[0]?.slug ?? "default";
   const [selectedSlug, setSelectedSlug] = React.useState<string>(initial);
 
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
+
+  // IMPORTANT:
+  // These hidden fields emulate what the upstream fancy-profiles form submits for profile_options.image.
+  // This makes JupyterHub/KubeSpawner actually use the built image on Start.
+  const imageOptionField = `profile-option-${selectedSlug}--image`;
+  const imageUnlistedField = `profile-option-${selectedSlug}--image--unlisted-choice`;
+
+  const useBuiltImage = Boolean(buildState.imageName);
 
   return (
     <div>
@@ -271,6 +279,15 @@ export function App(props: Props) {
           subdir: repoState.subdir,
         }}
       />
+
+      {/* Hidden fields consumed by fancy-profiles backend to set KubeSpawner.image */}
+      <input type="hidden" name={imageOptionField} value={useBuiltImage ? "unlisted_choice" : "default"} />
+      <input type="hidden" name={imageUnlistedField} value={useBuiltImage ? buildState.imageName : ""} />
+
+      {/* Keep the normal spawn submit */}
+      <button className="btn btn-jupyter form-control mt-3" type="submit">
+        Launch
+      </button>
     </div>
   );
 }
