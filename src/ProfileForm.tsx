@@ -1,5 +1,6 @@
 import * as React from "react";
-import { ImageBuilder } from "./ImageBuilder";
+import { useBinderBuild } from "./ImageBuilder";
+import { useRepositoryField, RepoProvider } from "./hooks/useRepositoryField";
 
 type Profile = {
   slug: string;
@@ -29,7 +30,6 @@ function ProfileCards(props: {
               Select an environment profile.
             </div>
           </div>
-          <span className="badge text-bg-secondary">Preview</span>
         </div>
 
         <div className="d-grid gap-2">
@@ -69,53 +69,179 @@ function ProfileCards(props: {
           })}
         </div>
 
-        {/* This is the field that actually gets submitted by JupyterHub spawn form */}
+        {/* Field that JupyterHub uses */}
         <input type="hidden" name="profile" value={selectedSlug} />
       </div>
     </div>
   );
 }
 
-function OptionsPreview(props: { selectedSlug: string }) {
-  const { selectedSlug } = props;
+function RepositoryForm(props: {
+  repoState: ReturnType<typeof useRepositoryField>;
+  disabled: boolean;
+}) {
+  const { repoState, disabled } = props;
+
+  const PROVIDERS: Array<{ id: RepoProvider; label: string; hint: string }> = [
+    { id: "github", label: "GitHub", hint: "owner/repo or https://github.com/owner/repo" },
+    { id: "gitlab", label: "GitLab", hint: "group/project or https://gitlab.com/group/project" },
+    { id: "gist", label: "Gist", hint: "username/gist-id or gist-id" },
+    { id: "zenodo", label: "Zenodo", hint: "record id (e.g. 1234567)" },
+    { id: "other", label: "Other (git URL)", hint: "https://host/org/repo.git" },
+  ];
+
+  const providerMeta = React.useMemo(() => {
+    return PROVIDERS.find((p) => p.id === repoState.provider) ?? PROVIDERS[0];
+  }, [repoState.provider]);
+
+  return (
+    <div className="card mb-3">
+      <div className="card-body">
+        <h3 className="h5 mb-2">Repository</h3>
+
+        <div className="row g-2">
+          <div className="col-12 col-md-3">
+            <label className="form-label">Provider</label>
+            <select
+              className="form-select"
+              value={repoState.provider}
+              onChange={(e) => repoState.setProvider(e.target.value as RepoProvider)}
+              disabled={disabled}
+            >
+              {PROVIDERS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="col-12 col-md-6">
+            <label className="form-label">Repository</label>
+            <input
+              className="form-control"
+              value={repoState.repo}
+              onChange={(e) => repoState.setRepo(e.target.value)}
+              placeholder={providerMeta.hint}
+              autoComplete="off"
+              spellCheck={false}
+              disabled={disabled}
+            />
+            <div className="form-text">
+              Example: <code>{providerMeta.hint}</code>
+            </div>
+          </div>
+
+          <div className="col-12 col-md-3">
+            <label className="form-label">Ref</label>
+            <input
+              className="form-control"
+              value={repoState.ref}
+              onChange={(e) => repoState.setRef(e.target.value)}
+              placeholder="branch / tag / commit"
+              autoComplete="off"
+              spellCheck={false}
+              disabled={disabled}
+            />
+            <div className="form-text">Optional (defaults to HEAD).</div>
+          </div>
+        </div>
+
+        <div className="row g-2 mt-2">
+          <div className="col-12 col-md-6">
+            <label className="form-label">Subdirectory (optional)</label>
+            <input
+              className="form-control"
+              value={repoState.subdir}
+              onChange={(e) => repoState.setSubdir(e.target.value)}
+              placeholder="path/inside/repo"
+              autoComplete="off"
+              spellCheck={false}
+              disabled={disabled}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BuildAndLaunch(props: {
+  buildState: ReturnType<typeof useBinderBuild>[0];
+  buildControls: ReturnType<typeof useBinderBuild>[1];
+  repo: { provider: RepoProvider; repo: string; ref: string; subdir: string };
+}) {
+  const { buildState, buildControls, repo } = props;
+  const isBuilding = buildState.status === "building";
+
+  const logRef = React.useRef<HTMLPreElement | null>(null);
+
+  React.useEffect(() => {
+    if (!buildState.logsOpen) return;
+    if (!logRef.current) return;
+    logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [buildState.logs, buildState.logsOpen]);
 
   return (
     <div className="card">
       <div className="card-body">
-        <h3 className="h5 mb-2">Options</h3>
-        <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-          Visual-only placeholders. We will wire real functionality later.
+        <h3 className="h5 mb-2">Build &amp; launch</h3>
+
+        {/* Removed: "Buttons below are visual-only for now." */}
+
+        <div className="d-flex gap-2 align-items-center flex-wrap">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() =>
+              buildControls.startBuild({
+                provider: repo.provider,
+                repo: repo.repo,
+                ref: repo.ref,
+                subdir: repo.subdir,
+              })
+            }
+            disabled={isBuilding}
+          >
+            {isBuilding ? "Building..." : "Build image"}
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-outline-secondary"
+            onClick={buildControls.openLogs}
+          >
+            Open logs
+          </button>
+
+          {buildState.imageName ? (
+            <span className="badge text-bg-success">imageName set</span>
+          ) : null}
         </div>
 
-        <div className="mt-3">
-          <div className="d-flex gap-2 align-items-center flex-wrap">
-            <span className="badge text-bg-primary">Selected profile</span>
-            <code>{selectedSlug}</code>
-          </div>
+        {buildState.error ? (
+          <div className="mt-2 alert alert-danger py-2 mb-0">{buildState.error}</div>
+        ) : null}
 
-          <div className="mt-3">
-            <ImageBuilder />
-          </div>
+        {buildState.logsOpen ? (
+          <div className="mt-2">
+            <pre
+              ref={logRef}
+              className="p-2 border rounded bg-body-tertiary mb-0"
+              style={{ maxHeight: 260, overflow: "auto", whiteSpace: "pre-wrap" }}
+            >
+{buildState.logs || "Logs will appear here once build starts."}
+            </pre>
 
-          <div className="mt-3 p-2 border rounded bg-body-tertiary">
-            <div className="fw-semibold">Build & launch</div>
-            <div className="text-muted" style={{ fontSize: "0.95rem" }}>
-              Buttons below are visual-only for now.
-            </div>
-            <div className="d-flex gap-2 mt-2 flex-wrap">
-              <button type="button" className="btn btn-outline-secondary btn-sm" disabled>
-                Build image
-              </button>
-              <button type="button" className="btn btn-outline-secondary btn-sm" disabled>
-                Open logs
-              </button>
-            </div>
+            {buildState.imageName ? (
+              <div className="mt-2 text-muted" style={{ fontSize: "0.9rem" }}>
+                Built image: <code>{buildState.imageName}</code>
+              </div>
+            ) : null}
           </div>
-        </div>
+        ) : null}
 
-        <button className="btn btn-jupyter form-control mt-3" type="submit">
-          Start
-        </button>
+        {/* The actual spawn (submit) button stays elsewhere in your form/page */}
       </div>
     </div>
   );
@@ -128,15 +254,38 @@ export function App(props: Props) {
 
   const [selectedSlug, setSelectedSlug] = React.useState<string>(initial);
 
+  // Repository fields live in ProfileForm (so Build & launch buttons here can use them).
+  const repoState = useRepositoryField();
+
+  // Binder build logic (SSE streaming) – UI is in this file.
+  const [buildState, buildControls] = useBinderBuild();
+
   return (
     <div>
       <ProfileCards
-        profileList={list.length ? list : [{ slug: "default", display_name: "Default", default: true }]}
+        profileList={
+          list.length
+            ? list
+            : [{ slug: "default", display_name: "Default", default: true }]
+        }
         selectedSlug={selectedSlug}
         onSelect={setSelectedSlug}
       />
-      <OptionsPreview selectedSlug={selectedSlug} />
+
+      <RepositoryForm repoState={repoState} disabled={buildState.status === "building"} />
+
+      <BuildAndLaunch
+        buildState={buildState}
+        buildControls={buildControls}
+        repo={{
+          provider: repoState.provider,
+          repo: repoState.repo,
+          ref: repoState.ref,
+          subdir: repoState.subdir,
+        }}
+      />
+
+      {/* Keep your existing Start/submit button wherever it already is in your UI */}
     </div>
   );
 }
-
