@@ -51,25 +51,30 @@ function stripTrailingGit(s: string) {
   return s.endsWith(".git") ? s.slice(0, -4) : s;
 }
 
-function extractZenodoRecordId(input: string): string {
+function normalizeZenodoSpec(input: string): string {
   const raw = input.trim();
   if (!raw) return raw;
 
-  // Already a numeric record id
-  if (/^\d+$/.test(raw)) return raw;
+  // If user typed numeric record id -> convert to DOI form expected by BinderHub docs
+  if (/^\d+$/.test(raw)) {
+    return `10.5281/zenodo.${raw}`;
+  }
 
-  // DOI formats:
-  // 10.5281/zenodo.3242074
+  // Extract DOI from DOI URLs
   // https://doi.org/10.5281/zenodo.3242074
   // https://dx.doi.org/10.5281/zenodo.3242074
-  const doiMatch = raw.match(/(?:^|doi\.org\/|dx\.doi\.org\/)10\.5281\/zenodo\.(\d+)\b/i);
-  if (doiMatch) return doiMatch[1];
+  const m1 = raw.match(/(?:doi\.org\/|dx\.doi\.org\/)(10\.5281\/zenodo\.\d+)\b/i);
+  if (m1) return m1[1];
 
-  // Zenodo record URLs:
+  // If user already typed DOI directly
+  const m2 = raw.match(/^(10\.5281\/zenodo\.\d+)\b/i);
+  if (m2) return m2[1];
+
+  // Zenodo record URLs -> extract the id and convert to DOI
   // https://zenodo.org/record/3242074
   // https://zenodo.org/records/3242074
-  const urlMatch = raw.match(/zenodo\.org\/(?:record|records)\/(\d+)\b/i);
-  if (urlMatch) return urlMatch[1];
+  const m3 = raw.match(/zenodo\.org\/(?:record|records)\/(\d+)\b/i);
+  if (m3) return `10.5281/zenodo.${m3[1]}`;
 
   return raw;
 }
@@ -78,7 +83,6 @@ function normalizeRepoInput(provider: RepoProvider, input: string): string {
   const raw = input.trim();
   if (!raw) return raw;
 
-  // Allow pasting full URLs for GitHub/GitLab/Gist and normalize to the expected spec.
   if (provider === "github") {
     const m = raw.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/.*)?$/i);
     if (m) return `${m[1]}/${stripTrailingGit(m[2])}`;
@@ -98,7 +102,7 @@ function normalizeRepoInput(provider: RepoProvider, input: string): string {
   }
 
   if (provider === "zenodo") {
-    return extractZenodoRecordId(raw);
+    return normalizeZenodoSpec(raw);
   }
 
   return raw;
@@ -121,10 +125,9 @@ function buildBinderUrl(args: {
   }
 
   // /services/binder/build/<provider_prefix>/<spec>
-  // NOTE:
   // - gh/gl/gist: <repo>/<ref>
-  // - zenodo: <record_id>
-  // - git: <url-escaped-url>/<ref>   <-- IMPORTANT (ref is part of the path)
+  // - zenodo: <zenodo-DOI>  (per BinderHub docs)
+  // - git: <url-escaped-url>/<ref>
   let specPath = "";
 
   if (binderProvider === "git") {
@@ -132,7 +135,7 @@ function buildBinderUrl(args: {
     const refPart = encodeURIComponent(ref);
     specPath = `${urlPart}/${refPart}`;
   } else if (binderProvider === "zenodo") {
-    // BinderHub expects record ID; do NOT append ref.
+    // IMPORTANT: Zenodo expects DOI (e.g. 10.5281/zenodo.3242074) as a single URL-escaped segment
     specPath = encodeURIComponent(normalizedRepo);
   } else {
     const parts = normalizedRepo.split("/").filter(Boolean).map(encodeURIComponent);
