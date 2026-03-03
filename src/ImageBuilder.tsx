@@ -51,10 +51,34 @@ function stripTrailingGit(s: string) {
   return s.endsWith(".git") ? s.slice(0, -4) : s;
 }
 
+function extractZenodoRecordId(input: string): string {
+  const raw = input.trim();
+  if (!raw) return raw;
+
+  // Already a numeric record id
+  if (/^\d+$/.test(raw)) return raw;
+
+  // DOI formats:
+  // 10.5281/zenodo.3242074
+  // https://doi.org/10.5281/zenodo.3242074
+  // https://dx.doi.org/10.5281/zenodo.3242074
+  const doiMatch = raw.match(/(?:^|doi\.org\/|dx\.doi\.org\/)10\.5281\/zenodo\.(\d+)\b/i);
+  if (doiMatch) return doiMatch[1];
+
+  // Zenodo record URLs:
+  // https://zenodo.org/record/3242074
+  // https://zenodo.org/records/3242074
+  const urlMatch = raw.match(/zenodo\.org\/(?:record|records)\/(\d+)\b/i);
+  if (urlMatch) return urlMatch[1];
+
+  return raw;
+}
+
 function normalizeRepoInput(provider: RepoProvider, input: string): string {
   const raw = input.trim();
   if (!raw) return raw;
 
+  // Allow pasting full URLs for GitHub/GitLab/Gist and normalize to the expected spec.
   if (provider === "github") {
     const m = raw.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/.*)?$/i);
     if (m) return `${m[1]}/${stripTrailingGit(m[2])}`;
@@ -71,6 +95,10 @@ function normalizeRepoInput(provider: RepoProvider, input: string): string {
   if (provider === "gist") {
     const m = raw.match(/^https?:\/\/gist\.github\.com\/([^/]+)\/([a-f0-9]+)(?:\/.*)?$/i);
     if (m) return `${m[1]}/${m[2]}`;
+  }
+
+  if (provider === "zenodo") {
+    return extractZenodoRecordId(raw);
   }
 
   return raw;
@@ -104,6 +132,7 @@ function buildBinderUrl(args: {
     const refPart = encodeURIComponent(ref);
     specPath = `${urlPart}/${refPart}`;
   } else if (binderProvider === "zenodo") {
+    // BinderHub expects record ID; do NOT append ref.
     specPath = encodeURIComponent(normalizedRepo);
   } else {
     const parts = normalizedRepo.split("/").filter(Boolean).map(encodeURIComponent);
