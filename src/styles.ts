@@ -1,127 +1,40 @@
 export const GLOBAL_CSS = `
-/* Prevent double submit buttons: hide legacy JupyterHub feedback block */
-.feedback-container {
+/* Hide legacy submit blocks that cause double Start/Launch in some templates */
+.feedback-container,
+#spawn-form .feedback-container,
+#spawn-form .form-actions {
   display: none !important;
 }
 
-/* Theme variables */
-html.jhfp-theme-egi {
-  --jhfp-primary: #f37726;   /* orange */
-  --jhfp-primary-hover: #d9651c;
-  --jhfp-accent: #ffeddc;
-}
+.fp-page { max-width: 980px; margin: 0 auto; padding: 16px; }
+.fp-header { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.fp-title { margin: 0; font-size: 22px; font-weight: 700; }
+.fp-subtitle { color: rgba(0,0,0,.7); }
 
-html.jhfp-theme-eosc {
-  --jhfp-primary: #1f6feb;   /* blue */
-  --jhfp-primary-hover: #1858bd;
-  --jhfp-accent: #e7f0ff;
-}
+.fp-card { border: 1px solid rgba(0,0,0,.12); border-radius: 10px; padding: 14px; background: #fff; }
+.fp-row { display: grid; grid-template-columns: 220px 1fr; gap: 12px; align-items: start; margin: 10px 0; }
+.fp-label { padding-top: 6px; }
+.fp-control { min-width: 0; }
 
-/* Page layout */
-.jhfp-page {
-  margin-top: 0.5rem;
-}
+.fp-help { margin-top: 6px; }
+.fp-divider { height: 1px; background: rgba(0,0,0,.12); margin: 14px 0; }
 
-.jhfp-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-}
+.fp-launch { display: flex; justify-content: flex-end; margin-top: 14px; }
+.fp-launch-btn { padding: 10px 16px; border-radius: 10px; font-weight: 700; }
 
-.jhfp-title {
-  margin: 0;
-  font-weight: 700;
-}
+.fp-binder { margin-top: 6px; }
+.fp-builder { margin-top: 8px; }
+.fp-build-btn { padding: 10px 14px; border-radius: 10px; font-weight: 700; }
+.fp-error { color: #b00020; }
 
-.jhfp-card {
-  border: 1px solid rgba(0,0,0,0.12);
-  border-radius: 12px;
-  padding: 1rem;
-  background: var(--bs-body-bg, #fff);
-}
+.fp-terminal { width: 100%; height: 320px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(0,0,0,.12); }
+.fp-built { margin-top: 12px; }
+.fp-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
 
-.jhfp-grid {
-  display: grid;
-  grid-template-columns: 360px 1fr;
-  gap: 1rem;
-}
+/* Theme switch: controlled by html.jhfp-theme-egi / html.jhfp-theme-eosc */
+html.jhfp-theme-egi .btn-jupyter { background: #f37726; border-color: #f37726; color: #fff; }
+html.jhfp-theme-eosc .btn-jupyter { background: #1f6feb; border-color: #1f6feb; color: #fff; }
 
-@media (max-width: 992px) {
-  .jhfp-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Mode switch */
-.jhfp-mode {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.jhfp-mode button {
-  border-radius: 999px;
-}
-
-.jhfp-mode button.active {
-  background: var(--jhfp-accent);
-  border-color: rgba(0,0,0,0.12);
-}
-
-/* Profile list */
-.jhfp-profile-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.jhfp-profile-item {
-  border: 1px solid rgba(0,0,0,0.12);
-  border-radius: 10px;
-  padding: 0.75rem;
-  cursor: pointer;
-  background: var(--bs-body-bg, #fff);
-}
-
-.jhfp-profile-item:hover {
-  border-color: rgba(0,0,0,0.22);
-}
-
-.jhfp-profile-item.active {
-  border-color: var(--jhfp-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--jhfp-primary) 20%, transparent);
-}
-
-.jhfp-profile-name {
-  margin: 0;
-  font-weight: 700;
-  font-size: 1.05rem;
-}
-
-.jhfp-profile-desc {
-  margin: 0.15rem 0 0;
-  opacity: 0.8;
-  font-size: 0.95rem;
-}
-
-/* Primary button */
-.jhfp-primary-btn {
-  background: var(--jhfp-primary) !important;
-  border-color: var(--jhfp-primary) !important;
-  color: #fff !important;
-  font-weight: 700;
-}
-
-.jhfp-primary-btn:hover {
-  background: var(--jhfp-primary-hover) !important;
-  border-color: var(--jhfp-primary-hover) !important;
-}
-
-.jhfp-footer {
-  margin-top: 1rem;
-  display: flex;
-  justify-content: flex-end;
-}
+.btn-jupyter:hover { filter: brightness(0.95); }
 `;
+
