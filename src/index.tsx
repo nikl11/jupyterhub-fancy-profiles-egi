@@ -1,21 +1,26 @@
+import * as React from "react";
 import { createRoot } from "react-dom/client";
+import { App } from "./ProfileForm";
 
-import ProfileForm from "./ProfileForm";
-import { SpawnerFormProvider } from "./state";
-import { FormCacheProvider } from "./context/FormCache";
-import { PermalinkProvider } from "./context/Permalink";
+type Profile = {
+  slug: string;
+  display_name?: string;
+  description?: string;
+  default?: boolean;
+  kubespawner_override?: Record<string, unknown>;
+  profile_options?: Record<string, unknown>;
+};
+
+declare global {
+  interface Window {
+    profileList?: Profile[];
+  }
+}
 
 const mount = document.getElementById("form");
 
 if (mount) {
   const root = createRoot(mount);
-  root.render(
-    <PermalinkProvider>
-      <SpawnerFormProvider>
-        <FormCacheProvider>
-          <ProfileForm />
-        </FormCacheProvider>
-      </SpawnerFormProvider>
-    </PermalinkProvider>,
-  );
+  root.render(<App profileList={window.profileList ?? []} />);
 }
+

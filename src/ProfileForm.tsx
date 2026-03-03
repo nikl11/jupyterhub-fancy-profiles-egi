@@ -1,112 +1,142 @@
-import { useContext, useMemo, useState } from "react";
+import * as React from "react";
+import { ImageBuilder } from "./ImageBuilder";
 
+type Profile = {
+  slug: string;
+  display_name?: string;
+  description?: string;
+  default?: boolean;
+};
 
-import { SpawnerFormContext } from "./state";
-import { PermalinkContext } from "./context/Permalink";
-import { IProfile } from "./types/config";
-import { ProfileOptions } from "./ProfileOptions";
-import Permalink from "./components/Permalink";
+type Props = {
+  profileList: Profile[];
+};
 
-function ProfileRadio({
-  profile,
-  checked,
-  onChange,
-}: {
-  profile: IProfile;
-  checked: boolean;
-  onChange: () => void;
+function ProfileCards(props: {
+  profileList: Profile[];
+  selectedSlug: string;
+  onSelect: (slug: string) => void;
 }) {
-  const title = profile.display_name;
-  const desc = profile.description ?? "";
-  return (
-    <label className="profile-card" style={{ cursor: "pointer" }}>
-      <div className="profile-card__main">
-        <input
-          type="radio"
-          name="profile-select"
-          aria-label={`${title}${desc ? " " + desc : ""}`}
-          checked={checked}
-          onChange={onChange}
-        />
-        <div className="profile-card__text">
-          <div className="profile-card__title">{title}</div>
-          {desc ? <div className="profile-card__desc">{desc}</div> : null}
-        </div>
-      </div>
-    </label>
-  );
-}
-
-function getDefaultProfileSlug(profileList: IProfile[]) {
-  return profileList.find((p) => p.default)?.slug ?? profileList[0]?.slug ?? "";
-}
-
-export default function ProfileForm() {
-  const { profileList, profile, setProfile } = useContext(SpawnerFormContext);
-  const { permalinkValues, permalinkParseError, setPermalinkValue } = useContext(PermalinkContext);
-
-  const defaultSlug = useMemo(() => getDefaultProfileSlug(profileList), [profileList]);
-
-  const permalinkProfile = permalinkValues["profile"];
-  const initialSlug =
-    permalinkProfile && profileList.some((p) => p.slug === permalinkProfile) ? permalinkProfile : defaultSlug;
-
-  const [selectedSlug, setSelectedSlug] = useState<string>(initialSlug);
-
-  const selectedProfile = useMemo(
-    () => profileList.find((p) => p.slug === selectedSlug) ?? null,
-    [profileList, selectedSlug],
-  );
-
-  if (selectedProfile && profile?.slug !== selectedProfile.slug) {
-    setProfile(selectedProfile);
-  }
-  if (selectedProfile) {
-    setPermalinkValue("profile", selectedProfile.slug);
-  }
-
-  const handleSelect = (slug: string) => {
-    setSelectedSlug(slug);
-    const p = profileList.find((x) => x.slug === slug) ?? null;
-    setProfile(p);
-    setPermalinkValue("profile", slug);
-  };
+  const { profileList, selectedSlug, onSelect } = props;
 
   return (
-    <div>
-      {permalinkParseError ? (
-        <div className="alert alert-warning" role="alert">
-          Invalid permalink config. Some saved values could not be restored.
+    <div className="card mb-3">
+      <div className="card-body">
+        <div className="d-flex align-items-center justify-content-between mb-2">
+          <div>
+            <h2 className="h4 mb-0">Environment</h2>
+            <div className="text-muted" style={{ fontSize: "0.95rem" }}>
+              Select an environment profile.
+            </div>
+          </div>
+          <span className="badge text-bg-secondary">Preview</span>
         </div>
-      ) : null}
 
-      <div className="d-flex align-items-center justify-content-between mb-2">
-        <h2 className="h5 mb-0">Choose your environment</h2>
-        <Permalink />
-      </div>
+        <div className="d-grid gap-2">
+          {profileList.map((p) => {
+            const title = p.display_name ?? p.slug;
+            const desc = p.description ?? "";
+            const active = p.slug === selectedSlug;
 
-      <div className="profile-list">
-        {profileList.map((p) => (
-          <ProfileRadio
-            key={p.slug}
-            profile={p}
-            checked={p.slug === selectedSlug}
-            onChange={() => handleSelect(p.slug)}
-          />
-        ))}
-      </div>
+            return (
+              <label
+                key={p.slug}
+                htmlFor={`profile-${p.slug}`}
+                className={`border rounded p-3 ${active ? "border-primary" : ""}`}
+                style={{ cursor: "pointer" }}
+              >
+                <div className="d-flex align-items-start justify-content-between gap-3">
+                  <div>
+                    <div className="fw-semibold">{title}</div>
+                    {desc ? (
+                      <div className="text-muted" style={{ fontSize: "0.95rem" }}>
+                        {desc}
+                      </div>
+                    ) : null}
+                  </div>
 
-      <input type="hidden" name="profile" value={selectedProfile?.slug ?? ""} />
-
-      {selectedProfile?.profile_options ? (
-        <div className="mt-3">
-          <ProfileOptions profile={selectedProfile.slug} config={selectedProfile.profile_options} />
+                  <input
+                    id={`profile-${p.slug}`}
+                    type="radio"
+                    name="select-profile"
+                    value={p.slug}
+                    checked={active}
+                    onChange={() => onSelect(p.slug)}
+                  />
+                </div>
+              </label>
+            );
+          })}
         </div>
-      ) : null}
 
-      <button className="btn btn-jupyter form-control mt-4" type="submit">
-        Launch
-      </button>
+        {/* This is the field that actually gets submitted by JupyterHub spawn form */}
+        <input type="hidden" name="profile" value={selectedSlug} />
+      </div>
     </div>
   );
 }
+
+function OptionsPreview(props: { selectedSlug: string }) {
+  const { selectedSlug } = props;
+
+  return (
+    <div className="card">
+      <div className="card-body">
+        <h3 className="h5 mb-2">Options</h3>
+        <div className="text-muted" style={{ fontSize: "0.95rem" }}>
+          Visual-only placeholders. We will wire real functionality later.
+        </div>
+
+        <div className="mt-3">
+          <div className="d-flex gap-2 align-items-center flex-wrap">
+            <span className="badge text-bg-primary">Selected profile</span>
+            <code>{selectedSlug}</code>
+          </div>
+
+          <div className="mt-3">
+            <ImageBuilder />
+          </div>
+
+          <div className="mt-3 p-2 border rounded bg-body-tertiary">
+            <div className="fw-semibold">Build & launch</div>
+            <div className="text-muted" style={{ fontSize: "0.95rem" }}>
+              Buttons below are visual-only for now.
+            </div>
+            <div className="d-flex gap-2 mt-2 flex-wrap">
+              <button type="button" className="btn btn-outline-secondary btn-sm" disabled>
+                Build image
+              </button>
+              <button type="button" className="btn btn-outline-secondary btn-sm" disabled>
+                Open logs
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <button className="btn btn-jupyter form-control mt-3" type="submit">
+          Start
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function App(props: Props) {
+  const list = props.profileList ?? [];
+  const initial =
+    list.find((p) => p.default === true)?.slug ?? list[0]?.slug ?? "default";
+
+  const [selectedSlug, setSelectedSlug] = React.useState<string>(initial);
+
+  return (
+    <div>
+      <ProfileCards
+        profileList={list.length ? list : [{ slug: "default", display_name: "Default", default: true }]}
+        selectedSlug={selectedSlug}
+        onSelect={setSelectedSlug}
+      />
+      <OptionsPreview selectedSlug={selectedSlug} />
+    </div>
+  );
+}
+

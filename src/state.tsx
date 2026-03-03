@@ -1,35 +1,46 @@
-import { createContext, PropsWithChildren, useMemo, useState } from "react";
-import { IJupytherHubWindowObject, IProfile } from "./types/config";
+import * as React from "react";
 
-export interface ISpawnerFormState {
-  profile: IProfile;
-  setProfile: React.Dispatch<React.SetStateAction<IProfile>>;
-  profileList: IProfile[];
+export type Profile = {
+  slug: string;
+  display_name: string;
+  description?: string;
+  default?: boolean;
+  kubespawner_override?: Record<string, unknown>;
+  profile_options?: Record<string, unknown>;
+};
+
+export type SpawnerFormState = {
+  profile: Profile | null;
+  setProfile: React.Dispatch<React.SetStateAction<Profile | null>>;
+  profileList: Profile[];
+};
+
+export const SpawnerFormContext = React.createContext<SpawnerFormState | null>(null);
+
+export function useSpawnerFormContext(): SpawnerFormState {
+  const ctx = React.useContext(SpawnerFormContext);
+  if (!ctx) {
+    throw new Error("useSpawnerFormContext must be used within SpawnerFormProvider");
+  }
+  return ctx;
 }
 
-const win = window as IJupytherHubWindowObject;
-const profileListFromWindow: IProfile[] = win.profileList || [];
+export function SpawnerFormProvider(props: { children: React.ReactNode; profileList: Profile[] }) {
+  const { profileList } = props;
 
-function getDefaultProfile(profileList: IProfile[]) {
-  return profileList.find((p) => p.default) || profileList[0] || null;
-}
+  const defaultProfile =
+    profileList.find((p) => p.default === true) ?? profileList[0] ?? null;
 
-export const SpawnerFormContext = createContext<ISpawnerFormState>(null);
+  const [profile, setProfile] = React.useState<Profile | null>(defaultProfile);
 
-export function SpawnerFormProvider({ children }: PropsWithChildren) {
-  const profileList = profileListFromWindow;
-
-  const defaultProfile = useMemo(() => getDefaultProfile(profileList), [profileList]);
-  const [profile, setProfile] = useState<IProfile>(defaultProfile);
-
-  const state = useMemo(
-    () => ({
+  const value = React.useMemo<SpawnerFormState>(() => {
+    return {
       profile,
       setProfile,
       profileList,
-    }),
-    [profile, profileList],
-  );
+    };
+  }, [profile, profileList]);
 
-  return <SpawnerFormContext.Provider value={state}>{children}</SpawnerFormContext.Provider>;
+  return <SpawnerFormContext.Provider value={value}>{props.children}</SpawnerFormContext.Provider>;
 }
+
