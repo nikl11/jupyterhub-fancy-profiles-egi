@@ -100,6 +100,11 @@ function RepositoryForm(props: {
     return PROVIDERS.find((p) => p.id === repoState.provider) ?? PROVIDERS[0];
   }, [repoState.provider]);
 
+  // Providers where ref does not apply (BinderHub ignores it anyway).
+  const refNotApplicable =
+    repoState.provider === "zenodo" //||
+    //repoState.provider === "gist"; // set to false if you want to allow gist refs
+
   return (
     <div className="card mb-3" aria-disabled={disabled}>
       <div className="card-body">
@@ -139,17 +144,26 @@ function RepositoryForm(props: {
           </div>
 
           <div className="col-12 col-md-3">
-            <label className="form-label">Ref</label>
+            <label className="form-label">
+              Ref{" "}
+              {refNotApplicable ? (
+                <span className="text-muted" style={{ fontWeight: 400 }}>
+                  (not used for {repoState.provider})
+                </span>
+              ) : null}
+            </label>
             <input
               className="form-control"
               value={repoState.ref}
               onChange={(e) => repoState.setRef(e.target.value)}
-              placeholder="branch / tag / commit"
+              placeholder={refNotApplicable ? "Not applicable" : "branch / tag / commit"}
               autoComplete="off"
               spellCheck={false}
-              disabled={disabled}
+              disabled={disabled || refNotApplicable}
             />
-            <div className="form-text">Optional (defaults to HEAD).</div>
+            <div className="form-text">
+              {refNotApplicable ? "This provider does not use refs." : "Optional (defaults to HEAD)."}
+            </div>
           </div>
         </div>
 
@@ -211,23 +225,14 @@ function BuildAndLaunch(props: {
             {isBuilding ? "Building..." : "Build image"}
           </button>
 
-          {/* Logs toggle must remain usable even while building */}
-          <button
-            type="button"
-            className="btn btn-outline-secondary"
-            onClick={buildControls.toggleLogs}
-          >
+          <button type="button" className="btn btn-outline-secondary" onClick={buildControls.toggleLogs}>
             {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
 
-          {buildState.imageName ? (
-            <span className="badge text-bg-success">image ready</span>
-          ) : null}
+          {buildState.imageName ? <span className="badge text-bg-success">image ready</span> : null}
         </div>
 
-        {buildState.error ? (
-          <div className="mt-2 alert alert-danger py-2 mb-0">{buildState.error}</div>
-        ) : null}
+        {buildState.error ? <div className="mt-2 alert alert-danger py-2 mb-0">{buildState.error}</div> : null}
 
         {buildState.logsOpen ? (
           <div className="mt-2">
@@ -283,11 +288,8 @@ function renamePrimarySubmitButton(label: string) {
   const btn = form.querySelector(`button[type="submit"], input[type="submit"]`);
   if (!btn) return;
 
-  if (btn instanceof HTMLInputElement) {
-    btn.value = label;
-  } else {
-    (btn as HTMLButtonElement).textContent = label;
-  }
+  if (btn instanceof HTMLInputElement) btn.value = label;
+  else (btn as HTMLButtonElement).textContent = label;
 }
 
 export function App(props: Props) {
@@ -298,7 +300,6 @@ export function App(props: Props) {
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
 
-  // Lock everything during build EXCEPT logs toggle
   const lockInputs = buildState.status === "building";
 
   React.useEffect(() => {
@@ -337,8 +338,6 @@ export function App(props: Props) {
         }}
         lockInputs={lockInputs}
       />
-
-      {/* Do not render a submit button here; the spawn template provides it. */}
     </div>
   );
 }
