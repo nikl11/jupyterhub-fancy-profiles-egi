@@ -17,11 +17,12 @@ function ProfileCards(props: {
   profileList: Profile[];
   selectedSlug: string;
   onSelect: (slug: string) => void;
+  disabled: boolean;
 }) {
-  const { profileList, selectedSlug, onSelect } = props;
+  const { profileList, selectedSlug, onSelect, disabled } = props;
 
   return (
-    <div className="card mb-3">
+    <div className="card mb-3" aria-disabled={disabled}>
       <div className="card-body">
         <div className="d-flex align-items-center justify-content-between mb-2">
           <div>
@@ -42,8 +43,13 @@ function ProfileCards(props: {
               <label
                 key={p.slug}
                 htmlFor={`profile-${p.slug}`}
-                className={`border rounded p-3 ${active ? "border-primary" : ""}`}
-                style={{ cursor: "pointer" }}
+                className={`border rounded p-3 ${active ? "border-primary" : ""} ${
+                  disabled ? "opacity-75" : ""
+                }`}
+                style={{
+                  cursor: disabled ? "not-allowed" : "pointer",
+                  userSelect: "none",
+                }}
               >
                 <div className="d-flex align-items-start justify-content-between gap-3">
                   <div>
@@ -62,6 +68,7 @@ function ProfileCards(props: {
                     value={p.slug}
                     checked={active}
                     onChange={() => onSelect(p.slug)}
+                    disabled={disabled}
                   />
                 </div>
               </label>
@@ -69,7 +76,6 @@ function ProfileCards(props: {
           })}
         </div>
 
-        {/* This is the field JupyterHub spawn form reads */}
         <input type="hidden" name="profile" value={selectedSlug} />
       </div>
     </div>
@@ -95,7 +101,7 @@ function RepositoryForm(props: {
   }, [repoState.provider]);
 
   return (
-    <div className="card mb-3">
+    <div className="card mb-3" aria-disabled={disabled}>
       <div className="card-body">
         <h3 className="h5 mb-2">Repository</h3>
 
@@ -170,8 +176,9 @@ function BuildAndLaunch(props: {
   buildState: ReturnType<typeof useBinderBuild>[0];
   buildControls: ReturnType<typeof useBinderBuild>[1];
   repo: { provider: RepoProvider; repo: string; ref: string; subdir: string };
+  lockInputs: boolean;
 }) {
-  const { buildState, buildControls, repo } = props;
+  const { buildState, buildControls, repo, lockInputs } = props;
   const isBuilding = buildState.status === "building";
 
   const logRef = React.useRef<HTMLPreElement | null>(null);
@@ -199,11 +206,12 @@ function BuildAndLaunch(props: {
                 subdir: repo.subdir,
               })
             }
-            disabled={isBuilding}
+            disabled={lockInputs || isBuilding}
           >
             {isBuilding ? "Building..." : "Build image"}
           </button>
 
+          {/* Logs toggle must remain usable even while building */}
           <button
             type="button"
             className="btn btn-outline-secondary"
@@ -244,13 +252,11 @@ function BuildAndLaunch(props: {
 }
 
 function ensureFormField(name: string, value: string) {
-  // Try to set existing field (select/input/textarea). If not found, create a hidden input.
   const el = document.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
     `[name="${CSS.escape(name)}"]`
   );
 
   if (el) {
-    // If multiple fields exist with same name, we want to set them all consistently.
     const all = document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
       `[name="${CSS.escape(name)}"]`
     );
@@ -271,18 +277,16 @@ function ensureFormField(name: string, value: string) {
 }
 
 function renamePrimarySubmitButton(label: string) {
-  // Rename the first submit button inside the main form.
   const form = document.querySelector<HTMLFormElement>("form");
   if (!form) return;
 
-  const btn = form.querySelector<HTMLButtonElement>(`button[type="submit"], input[type="submit"]`);
+  const btn = form.querySelector(`button[type="submit"], input[type="submit"]`);
   if (!btn) return;
 
-  // Handle <input type="submit"> vs <button>
   if (btn instanceof HTMLInputElement) {
     btn.value = label;
   } else {
-    btn.textContent = label;
+    (btn as HTMLButtonElement).textContent = label;
   }
 }
 
@@ -294,20 +298,19 @@ export function App(props: Props) {
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
 
-  // 1) Always rename the existing submit button to "Launch" (no duplicate buttons from React).
+  // Lock everything during build EXCEPT logs toggle
+  const lockInputs = buildState.status === "building";
+
   React.useEffect(() => {
     renamePrimarySubmitButton("Launch");
   }, []);
 
-  // 2) When build succeeds, force the form fields that fancy-profiles/JupyterHub reads for image selection.
-  // This avoids being overwritten by an existing <select name="profile-option-...--image">.
   React.useEffect(() => {
     if (!buildState.imageName) return;
 
     const imageChoiceField = `profile-option-${selectedSlug}--image`;
     const imageUnlistedField = `profile-option-${selectedSlug}--image--unlisted-choice`;
 
-    // Select "unlisted_choice" and set the unlisted image value to the built imageName
     ensureFormField(imageChoiceField, "unlisted_choice");
     ensureFormField(imageUnlistedField, buildState.imageName);
   }, [buildState.imageName, selectedSlug]);
@@ -318,9 +321,10 @@ export function App(props: Props) {
         profileList={list.length ? list : [{ slug: "default", display_name: "Default", default: true }]}
         selectedSlug={selectedSlug}
         onSelect={setSelectedSlug}
+        disabled={lockInputs}
       />
 
-      <RepositoryForm repoState={repoState} disabled={buildState.status === "building"} />
+      <RepositoryForm repoState={repoState} disabled={lockInputs} />
 
       <BuildAndLaunch
         buildState={buildState}
@@ -331,10 +335,10 @@ export function App(props: Props) {
           ref: repoState.ref,
           subdir: repoState.subdir,
         }}
+        lockInputs={lockInputs}
       />
 
-      {/* IMPORTANT: Do NOT render any submit button here.
-          The spawn template already provides one. We just rename it to "Launch". */}
+      {/* Do not render a submit button here; the spawn template provides it. */}
     </div>
   );
 }
