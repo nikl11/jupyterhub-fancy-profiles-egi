@@ -1,6 +1,15 @@
 import * as React from "react";
 
-export type RepoProvider = "github" | "gitlab" | "gist" | "zenodo" | "other";
+export type RepoProvider =
+  | "github"
+  | "gitlab"
+  | "gist"
+  | "zenodo"
+  | "figshare"
+  | "hydroshare"
+  | "dataverse"
+  | "ckan"
+  | "git";
 
 export type RepoFormState = {
   provider: RepoProvider;
@@ -16,7 +25,9 @@ export type RepoFormState = {
   setSubdir: (v: string) => void;
 };
 
-export function useRepositoryField(initial?: Partial<Pick<RepoFormState, "provider" | "repo" | "ref" | "subdir">>): RepoFormState {
+export function useRepositoryField(
+  initial?: Partial<Pick<RepoFormState, "provider" | "repo" | "ref" | "subdir">>
+): RepoFormState {
   const [provider, setProvider] = React.useState<RepoProvider>(initial?.provider ?? "github");
   const [repo, setRepo] = React.useState<string>(initial?.repo ?? "");
   const [ref, setRef] = React.useState<string>(initial?.ref ?? "");
@@ -33,4 +44,3 @@ export function useRepositoryField(initial?: Partial<Pick<RepoFormState, "provid
     setSubdir,
   };
 }
-

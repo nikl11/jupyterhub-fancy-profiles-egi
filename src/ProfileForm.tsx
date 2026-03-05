@@ -90,20 +90,27 @@ function RepositoryForm(props: {
 
   const PROVIDERS: Array<{ id: RepoProvider; label: string; hint: string }> = [
     { id: "github", label: "GitHub", hint: "owner/repo or https://github.com/owner/repo" },
-    { id: "gitlab", label: "GitLab", hint: "group/project or https://gitlab.com/group/project" },
-    { id: "gist", label: "Gist", hint: "username/gist-id or gist-id" },
-    { id: "zenodo", label: "Zenodo", hint: "record id or DOI (e.g. 10.5281/zenodo.1234567)" },
-    { id: "other", label: "Other (git URL)", hint: "https://host/org/repo.git" },
+    { id: "gitlab", label: "GitLab", hint: "group/repo or https://gitlab.com/group/repo" },
+    { id: "gist", label: "Gist", hint: "gist id or https://gist.github.com/<user>/<id>" },
+    { id: "zenodo", label: "Zenodo", hint: "DOI or record id (e.g. 10.5281/zenodo.3242074)" },
+    { id: "figshare", label: "Figshare", hint: "DOI, article id or URL" },
+    { id: "hydroshare", label: "Hydroshare", hint: "resource UUID or URL" },
+    { id: "dataverse", label: "Dataverse", hint: "persistentId (doi:...) or dataset URL" },
+    { id: "ckan", label: "CKAN", hint: "dataset URL (CKAN instance)" },
+    { id: "git", label: "Git (URL)", hint: "git clone URL (https://... or git@...)" },
   ];
 
   const providerMeta = React.useMemo(() => {
     return PROVIDERS.find((p) => p.id === repoState.provider) ?? PROVIDERS[0];
   }, [repoState.provider]);
 
-  // Providers where ref does not apply (BinderHub ignores it anyway).
+  // Keep it visually identical; just disable the input for providers where ref is not meaningful.
   const refNotApplicable =
-    repoState.provider === "zenodo" //||
-    //repoState.provider === "gist"; // set to false if you want to allow gist refs
+    repoState.provider === "zenodo" ||
+    repoState.provider === "figshare" ||
+    repoState.provider === "hydroshare" ||
+    repoState.provider === "dataverse" ||
+    repoState.provider === "ckan";
 
   return (
     <div className="card mb-3" aria-disabled={disabled}>
@@ -144,26 +151,17 @@ function RepositoryForm(props: {
           </div>
 
           <div className="col-12 col-md-3">
-            <label className="form-label">
-              Ref{" "}
-              {refNotApplicable ? (
-                <span className="text-muted" style={{ fontWeight: 400 }}>
-                  (not used for {repoState.provider})
-                </span>
-              ) : null}
-            </label>
+            <label className="form-label">Ref</label>
             <input
               className="form-control"
               value={repoState.ref}
               onChange={(e) => repoState.setRef(e.target.value)}
-              placeholder={refNotApplicable ? "Not applicable" : "branch / tag / commit"}
+              placeholder="branch / tag / commit"
               autoComplete="off"
               spellCheck={false}
               disabled={disabled || refNotApplicable}
             />
-            <div className="form-text">
-              {refNotApplicable ? "This provider does not use refs." : "Optional (defaults to HEAD)."}
-            </div>
+            <div className="form-text">Optional (defaults to HEAD).</div>
           </div>
         </div>
 
@@ -225,6 +223,7 @@ function BuildAndLaunch(props: {
             {isBuilding ? "Building..." : "Build image"}
           </button>
 
+          {/* Logs toggle stays usable */}
           <button type="button" className="btn btn-outline-secondary" onClick={buildControls.toggleLogs}>
             {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
