@@ -44,9 +44,15 @@ function tryParseUrl(s: string): URL | null {
   }
 }
 
-function encodePathSegment(s: string) {
-  // encodeURIComponent is correct for a single path segment
+function encodePathSegmentStrict(s: string) {
+  // Encodes '/' as %2F (good for git providers where spec is a single segment)
   return encodeURIComponent(s);
+}
+
+function encodePathKeepSlashes(s: string) {
+  // Keeps '/' unescaped (good for DOI-like specs where BinderHub expects slashes)
+  // Still encodes spaces etc.
+  return encodeURI(s);
 }
 
 function normalizeGithub(input: string): { spec: string } {
@@ -54,13 +60,11 @@ function normalizeGithub(input: string): { spec: string } {
   const u = tryParseUrl(raw);
 
   if (!u) {
-    // accept owner/repo or owner/repo/tree/branch etc -> reduce
     const parts = raw.split("/").filter(Boolean);
     if (parts.length >= 2) return { spec: `${parts[0]}/${stripGitSuffix(parts[1])}` };
     return { spec: raw };
   }
 
-  // https://github.com/owner/repo(/...)
   const parts = u.pathname.split("/").filter(Boolean);
   if (parts.length >= 2) {
     return { spec: `${parts[0]}/${stripGitSuffix(parts[1])}` };
@@ -72,12 +76,8 @@ function normalizeGitlab(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
   const u = tryParseUrl(raw);
 
-  if (!u) {
-    // group/subgroup/repo
-    return { spec: stripGitSuffix(raw.replace(/^\/+/, "")) };
-  }
+  if (!u) return { spec: stripGitSuffix(raw.replace(/^\/+/, "")) };
 
-  // https://gitlab.com/group/subgroup/repo/-/tree/...
   const parts = u.pathname.split("/").filter(Boolean);
   const dashIdx = parts.indexOf("-");
   const useful = dashIdx >= 0 ? parts.slice(0, dashIdx) : parts;
@@ -89,15 +89,12 @@ function normalizeGist(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
   const u = tryParseUrl(raw);
 
-  // BinderHub gist provider usually wants the gist id
   if (!u) {
-    // allow "user/gistid" or just "gistid"
     const parts = raw.split("/").filter(Boolean);
     const last = parts[parts.length - 1] ?? raw;
     return { spec: last };
   }
 
-  // https://gist.github.com/user/<id> or /<id>
   const parts = u.pathname.split("/").filter(Boolean);
   const last = parts[parts.length - 1] ?? raw;
   return { spec: last };
@@ -106,54 +103,43 @@ function normalizeGist(input: string): { spec: string } {
 function normalizeZenodo(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
 
-  // Accept:
-  // - 10.5281/zenodo.3242074
-  // - https://doi.org/10.5281/zenodo.3242074
-  // - https://dx.doi.org/10.5281/zenodo.3242074
-  // - 3242074 (record id)
-  //
-  // Prefer DOI form if present; otherwise allow record id.
+  // Accept DOI formats:
+  // 10.5281/zenodo.3242074
+  // https://doi.org/10.5281/zenodo.3242074
+  // https://dx.doi.org/10.5281/zenodo.3242074
   const u = tryParseUrl(raw);
-  const candidate = u ? stripTrailingSlash(`${u.host}${u.pathname}`.replace(/^doi\.org\//i, "").replace(/^dx\.doi\.org\//i, "")) : raw;
+  const candidate = u
+    ? stripTrailingSlash(`${u.host}${u.pathname}`
+        .replace(/^doi\.org\//i, "")
+        .replace(/^dx\.doi\.org\//i, ""))
+    : raw;
 
-  // Extract DOI in path if it contains "/zenodo."
-  const doiMatch = candidate.match(/(10\.5281\/zenodo\.\d+)/i);
+  const doiMatch = candidate.match(/(10\.\d+\/zenodo\.\d+)/i);
   if (doiMatch) return { spec: doiMatch[1] };
 
-  // Sometimes DOI appears without scheme: 10.5281/zenodo.3242074
-  const directDoiMatch = raw.match(/(10\.5281\/zenodo\.\d+)/i);
-  if (directDoiMatch) return { spec: directDoiMatch[1] };
+  const direct = raw.match(/(10\.\d+\/zenodo\.\d+)/i);
+  if (direct) return { spec: direct[1] };
 
-  // Otherwise treat as record id (digits)
-  const id = raw.replace(/[^\d]/g, "");
-  return { spec: id || raw };
+  // If user pasted something odd, just pass it through; BinderHub will validate.
+  return { spec: raw };
 }
 
 function normalizeFigshare(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
   const u = tryParseUrl(raw);
 
-  // Common:
-  // - https://figshare.com/articles/<...>/<id>
-  // - https://doi.org/10.6084/m9.figshare.<id>
-  // - 10.6084/m9.figshare.<id>
-  // - <id>
+  // Figshare provider expects a DOI-like spec too.
+  // e.g. 10.6084/m9.figshare.9782777.v1
   if (u) {
     const host = u.host.toLowerCase();
     if (host.includes("doi.org") || host.includes("dx.doi.org")) {
-      const m = u.pathname.match(/(10\.6084\/m9\.figshare\.\d+)/i);
-      if (m) return { spec: m[1] };
+      const m = u.pathname.match(/(10\.\d+\/.+)/);
+      if (m) return { spec: m[1].replace(/^\/+/, "") };
     }
-    const parts = u.pathname.split("/").filter(Boolean);
-    const last = parts[parts.length - 1] ?? raw;
-    if (/^\d+$/.test(last)) return { spec: last };
   }
 
-  const doi = raw.match(/(10\.6084\/m9\.figshare\.\d+)/i);
+  const doi = raw.match(/(10\.\d+\/.+)/);
   if (doi) return { spec: doi[1] };
-
-  const id = raw.match(/(\d{5,})/);
-  if (id) return { spec: id[1] };
 
   return { spec: raw };
 }
@@ -162,9 +148,6 @@ function normalizeHydroshare(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
   const u = tryParseUrl(raw);
 
-  // Common:
-  // - https://www.hydroshare.org/resource/<uuid>/
-  // - <uuid>
   if (u) {
     const m = u.pathname.match(/\/resource\/([0-9a-fA-F-]{10,})/);
     if (m) return { spec: m[1] };
@@ -176,21 +159,16 @@ function normalizeDataverse(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
   const u = tryParseUrl(raw);
 
-  // Common:
-  // - https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/...
-  // - doi:10.7910/DVN/...
-  // - 10.7910/DVN/...
   if (u) {
     const pid = u.searchParams.get("persistentId");
-    if (pid) return { spec: pid };
-    // sometimes persistentId is in fragment too, but rare
+    if (pid) return { spec: pid.replace(/\s+/g, "") };
   }
 
   const m1 = raw.match(/(doi:\s*10\.\d+\/\S+)/i);
   if (m1) return { spec: m1[1].replace(/\s+/g, "") };
 
   const m2 = raw.match(/(10\.\d+\/\S+)/);
-  if (m2) return { spec: `doi:${m2[1]}` };
+  if (m2) return { spec: m2[1] };
 
   return { spec: raw };
 }
@@ -198,27 +176,17 @@ function normalizeDataverse(input: string): { spec: string } {
 function normalizeCkan(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
   const u = tryParseUrl(raw);
-
-  // CKANProvider typically accepts a dataset URL.
-  // We'll pass through a normalized URL (no trailing slash).
   if (u) return { spec: stripTrailingSlash(u.toString()) };
   return { spec: raw };
 }
 
 function normalizeGit(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
-
-  // Accept:
-  // - https://host/org/repo(.git)
-  // - git@host:org/repo(.git)
-  // - any git clone URL
-  // For https URLs, strip trailing slash, keep .git optional.
   if (/^https?:\/\//i.test(raw)) return { spec: stripTrailingSlash(raw) };
   return { spec: raw };
 }
 
 function mapToBinderProvider(p: RepoProvider): string {
-  // BinderHub endpoint provider tokens
   switch (p) {
     case "github":
       return "gh";
@@ -269,16 +237,27 @@ function normalizeForProvider(p: RepoProvider, repoRaw: string) {
 }
 
 function providerUsesRefInPath(binderProvider: string) {
-  // In BinderHub, git-backed providers use /<ref> path segment.
-  // Dataset providers usually resolve versions internally, so we omit /<ref> if empty.
   return binderProvider === "gh" || binderProvider === "gl" || binderProvider === "gist" || binderProvider === "git";
+}
+
+function providerKeepsSlashesInSpec(binderProvider: string) {
+  // DOI/persistentId style specs must keep '/' in the path (urlEncode: False in BinderHub UI config)
+  return (
+    binderProvider === "zenodo" ||
+    binderProvider === "figshare" ||
+    binderProvider === "dataverse"
+    // hydroshare/ckan specs do not contain '/' in the same way, but keeping slashes is harmless.
+  );
 }
 
 function buildBinderBuildUrl(args: BinderBuildArgs): { url: string; display: string } {
   const providerToken = mapToBinderProvider(args.provider);
   const norm = normalizeForProvider(args.provider, args.repo);
 
-  const specEncoded = encodePathSegment(norm.spec);
+  const specEncoded = providerKeepsSlashesInSpec(providerToken)
+    ? encodePathKeepSlashes(norm.spec)
+    : encodePathSegmentStrict(norm.spec);
+
   const base = `/services/binder/build/${providerToken}/${specEncoded}`;
 
   const refRaw = safeTrim(args.ref);
@@ -291,12 +270,10 @@ function buildBinderBuildUrl(args: BinderBuildArgs): { url: string; display: str
   let full = base;
 
   if (providerUsesRefInPath(providerToken)) {
-    full = `${base}/${encodePathSegment(ref)}`;
+    full = `${base}/${encodePathSegmentStrict(ref)}`;
   } else {
-    // dataset providers: let BinderHub resolve default version; don't force HEAD if empty
-    // If user provided a ref explicitly, we still pass it in the path (it is supported by BinderHub for some providers),
-    // but many dataset providers ignore it. Keep it optional:
-    if (refRaw) full = `${base}/${encodePathSegment(refRaw)}`;
+    // Dataset providers: do NOT force "/HEAD" when empty.
+    if (refRaw) full = `${base}/${encodePathSegmentStrict(refRaw)}`;
   }
 
   if (query.length) full += `?${query.join("&")}`;
@@ -309,12 +286,9 @@ function appendLog(setter: React.Dispatch<React.SetStateAction<string>>, chunk: 
 }
 
 function tryExtractImageNameFromLine(line: string): string | null {
-  // BinderHub often outputs json-logs from repo2docker/binder build
-  // We try JSON first, then fall back to simple regexes.
   const trimmed = line.trim();
   if (!trimmed) return null;
 
-  // JSON log line
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     try {
       const obj: any = JSON.parse(trimmed);
@@ -327,7 +301,6 @@ function tryExtractImageNameFromLine(line: string): string | null {
     }
   }
 
-  // Plain text patterns
   const m1 = trimmed.match(/Built image:\s*(\S+)/i);
   if (m1) return m1[1];
 
@@ -412,7 +385,6 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
           }
         }
 
-        // handle remainder
         if (buffer) {
           const found = tryExtractImageNameFromLine(buffer);
           if (found) setImageName(found);
