@@ -45,13 +45,12 @@ function tryParseUrl(s: string): URL | null {
 }
 
 function encodePathSegmentStrict(s: string) {
-  // Encodes '/' as %2F (good for git providers where spec is a single segment)
+  // Encodes '/' as %2F
   return encodeURIComponent(s);
 }
 
 function encodePathKeepSlashes(s: string) {
-  // Keeps '/' unescaped (good for DOI-like specs where BinderHub expects slashes)
-  // Still encodes spaces etc.
+  // Keeps '/' unescaped (DOI-like specs)
   return encodeURI(s);
 }
 
@@ -66,9 +65,7 @@ function normalizeGithub(input: string): { spec: string } {
   }
 
   const parts = u.pathname.split("/").filter(Boolean);
-  if (parts.length >= 2) {
-    return { spec: `${parts[0]}/${stripGitSuffix(parts[1])}` };
-  }
+  if (parts.length >= 2) return { spec: `${parts[0]}/${stripGitSuffix(parts[1])}` };
   return { spec: raw };
 }
 
@@ -103,15 +100,11 @@ function normalizeGist(input: string): { spec: string } {
 function normalizeZenodo(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
 
-  // Accept DOI formats:
-  // 10.5281/zenodo.3242074
-  // https://doi.org/10.5281/zenodo.3242074
-  // https://dx.doi.org/10.5281/zenodo.3242074
   const u = tryParseUrl(raw);
   const candidate = u
-    ? stripTrailingSlash(`${u.host}${u.pathname}`
-        .replace(/^doi\.org\//i, "")
-        .replace(/^dx\.doi\.org\//i, ""))
+    ? stripTrailingSlash(
+        `${u.host}${u.pathname}`.replace(/^doi\.org\//i, "").replace(/^dx\.doi\.org\//i, "")
+      )
     : raw;
 
   const doiMatch = candidate.match(/(10\.\d+\/zenodo\.\d+)/i);
@@ -120,7 +113,6 @@ function normalizeZenodo(input: string): { spec: string } {
   const direct = raw.match(/(10\.\d+\/zenodo\.\d+)/i);
   if (direct) return { spec: direct[1] };
 
-  // If user pasted something odd, just pass it through; BinderHub will validate.
   return { spec: raw };
 }
 
@@ -128,8 +120,6 @@ function normalizeFigshare(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
   const u = tryParseUrl(raw);
 
-  // Figshare provider expects a DOI-like spec too.
-  // e.g. 10.6084/m9.figshare.9782777.v1
   if (u) {
     const host = u.host.toLowerCase();
     if (host.includes("doi.org") || host.includes("dx.doi.org")) {
@@ -241,16 +231,10 @@ function providerUsesRefInPath(binderProvider: string) {
 }
 
 function providerKeepsSlashesInSpec(binderProvider: string) {
-  // DOI/persistentId style specs must keep '/' in the path (urlEncode: False in BinderHub UI config)
-  return (
-    binderProvider === "zenodo" ||
-    binderProvider === "figshare" ||
-    binderProvider === "dataverse"
-    // hydroshare/ckan specs do not contain '/' in the same way, but keeping slashes is harmless.
-  );
+  return binderProvider === "zenodo" || binderProvider === "figshare" || binderProvider === "dataverse";
 }
 
-function buildBinderBuildUrl(args: BinderBuildArgs): { url: string; display: string } {
+function buildBinderBuildUrl(args: BinderBuildArgs, opts?: { buildOnly?: boolean }): { url: string; display: string } {
   const providerToken = mapToBinderProvider(args.provider);
   const norm = normalizeForProvider(args.provider, args.repo);
 
@@ -267,12 +251,14 @@ function buildBinderBuildUrl(args: BinderBuildArgs): { url: string; display: str
   const subdirRaw = safeTrim(args.subdir);
   if (subdirRaw) query.push(`subdir=${encodeURIComponent(subdirRaw)}`);
 
+  // IMPORTANT: Prevent BinderHub from trying to "launch" (and create temp users)
+  if (opts?.buildOnly) query.push(`build_only=1`);
+
   let full = base;
 
   if (providerUsesRefInPath(providerToken)) {
     full = `${base}/${encodePathSegmentStrict(ref)}`;
   } else {
-    // Dataset providers: do NOT force "/HEAD" when empty.
     if (refRaw) full = `${base}/${encodePathSegmentStrict(refRaw)}`;
   }
 
@@ -289,10 +275,21 @@ function tryExtractImageNameFromLine(line: string): string | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
 
+  if (trimmed.startsWith("data:")) {
+    const jsonPart = trimmed.replace(/^data:\s*/, "");
+    try {
+      const obj: any = JSON.parse(jsonPart);
+      if (typeof obj?.imageName === "string" && obj.imageName.includes("/")) return obj.imageName;
+    } catch {
+      // ignore
+    }
+  }
+
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     try {
       const obj: any = JSON.parse(trimmed);
-      const candidates = [obj.imageName, obj.image, obj.image_name, obj["image-name"], obj["image_name"]];
+      if (typeof obj?.imageName === "string" && obj.imageName.includes("/")) return obj.imageName;
+      const candidates = [obj.image, obj.image_name, obj["image-name"], obj["image_name"]];
       for (const c of candidates) {
         if (typeof c === "string" && c.includes("/")) return c;
       }
@@ -301,13 +298,78 @@ function tryExtractImageNameFromLine(line: string): string | null {
     }
   }
 
-  const m1 = trimmed.match(/Built image:\s*(\S+)/i);
+  const m1 = trimmed.match(/"imageName"\s*:\s*"([^"]+)"/);
   if (m1) return m1[1];
 
-  const m2 = trimmed.match(/--image(?:=|\s+)(\S+)/i);
+  const m2 = trimmed.match(/Built image:\s*(\S+)/i);
   if (m2) return m2[1];
 
+  const m3 = trimmed.match(/--image(?:=|\s+)(\S+)/i);
+  if (m3) return m3[1];
+
   return null;
+}
+
+function looksLikeBuildOnlyNotPermitted(body: string) {
+  const s = (body || "").toLowerCase();
+  return s.includes("build_only") && (s.includes("not permitted") || s.includes("not allowed") || s.includes("api only"));
+}
+
+async function streamBuild(
+  url: string,
+  display: string,
+  ac: AbortController,
+  setLogs: React.Dispatch<React.SetStateAction<string>>,
+  setImageName: React.Dispatch<React.SetStateAction<string | null>>
+) {
+  appendLog(setLogs, `Connecting to: ${display}\n`);
+
+  const res = await fetch(url, {
+    method: "GET",
+    signal: ac.signal,
+    credentials: "same-origin",
+  });
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    const msg = t || `HTTP ${res.status}`;
+    const err: any = new Error(msg);
+    err._raw = t;
+    err._status = res.status;
+    throw err;
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) {
+    const t = await res.text().catch(() => "");
+    appendLog(setLogs, t ? t + "\n" : "\n");
+    return;
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value, { stream: true });
+    appendLog(setLogs, chunk);
+
+    buffer += chunk;
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const found = tryExtractImageNameFromLine(line);
+      if (found) setImageName(found);
+    }
+  }
+
+  if (buffer) {
+    const found = tryExtractImageNameFromLine(buffer);
+    if (found) setImageName(found);
+  }
 }
 
 export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
@@ -338,67 +400,45 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
     const ac = new AbortController();
     abortRef.current = ac;
 
-    const { url, display } = buildBinderBuildUrl(args);
-
     setStatus("building");
     setError(null);
     setImageName(null);
     setLogsOpen(true);
-    setLogs(`Connecting to: ${display}\n`);
+    setLogs("");
 
-    fetch(url, {
-      method: "GET",
-      signal: ac.signal,
-      credentials: "same-origin",
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const t = await res.text().catch(() => "");
-          throw new Error(t || `HTTP ${res.status}`);
-        }
+    const first = buildBinderBuildUrl(args, { buildOnly: true });
+    const fallback = buildBinderBuildUrl(args, { buildOnly: false });
 
-        const reader = res.body?.getReader();
-        if (!reader) {
-          const t = await res.text().catch(() => "");
-          appendLog(setLogs, t ? t + "\n" : "\n");
-          setStatus("done");
-          return;
-        }
+    (async () => {
+      try {
+        await streamBuild(first.url, first.display, ac, setLogs, setImageName);
+        setStatus("done");
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
 
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          appendLog(setLogs, chunk);
-
-          buffer += chunk;
-          const lines = buffer.split(/\r?\n/);
-          buffer = lines.pop() ?? "";
-
-          for (const line of lines) {
-            const found = tryExtractImageNameFromLine(line);
-            if (found) setImageName(found);
+        const raw = typeof e?._raw === "string" ? e._raw : "";
+        if (looksLikeBuildOnlyNotPermitted(raw)) {
+          appendLog(setLogs, `\n[info] build_only not permitted here, retrying without build_only...\n\n`);
+          try {
+            await streamBuild(fallback.url, fallback.display, ac, setLogs, setImageName);
+            setStatus("done");
+            return;
+          } catch (e2: any) {
+            if (e2?.name === "AbortError") return;
+            const msg2 = typeof e2?.message === "string" ? e2.message : String(e2);
+            setStatus("error");
+            setError(msg2);
+            appendLog(setLogs, `\n[failed] ${msg2}\n`);
+            return;
           }
         }
 
-        if (buffer) {
-          const found = tryExtractImageNameFromLine(buffer);
-          if (found) setImageName(found);
-        }
-
-        setStatus("done");
-      })
-      .catch((e: any) => {
-        if (e?.name === "AbortError") return;
         const msg = typeof e?.message === "string" ? e.message : String(e);
         setStatus("error");
         setError(msg);
         appendLog(setLogs, `\n[failed] ${msg}\n`);
-      });
+      }
+    })();
   }, []);
 
   return [
