@@ -31,9 +31,21 @@ export type BinderBuildControls = {
 async function getApiToken() {
   const xsrfToken = (`; ${document.cookie}`).split("; _xsrf=").pop()?.split(";")[0] ?? "";
 
-  const userResponse = await fetch(`/hub/api/user?_xsrf=${xsrfToken}`, {
+  if (!xsrfToken) {
+    throw new Error("Missing _xsrf cookie");
+  }
+
+  const defaultHeaders = {
+    "X-XSRFToken": xsrfToken,
+    "Accept": "application/json",
+  };
+
+  const userResponse = await fetch(`/hub/api/user`, {
+    method: "GET",
     credentials: "include",
+    headers: defaultHeaders,
   });
+
   if (!userResponse.ok) {
     throw new Error(`Failed to get JupyterHub user: HTTP ${userResponse.status}`);
   }
@@ -48,25 +60,27 @@ async function getApiToken() {
 
     if (isExpired) {
       localStorage.removeItem(TOKEN_KEY);
-      await fetch(`/hub/api/users/${name}/tokens/${id}?_xsrf=${xsrfToken}`, {
+      await fetch(`/hub/api/users/${name}/tokens/${id}`, {
         method: "DELETE",
         credentials: "include",
+        headers: defaultHeaders,
       });
     } else {
       return token as string;
     }
   }
 
-  const tokenResponse = await fetch(`/hub/api/users/${name}/tokens?_xsrf=${xsrfToken}`, {
+  const tokenResponse = await fetch(`/hub/api/users/${name}/tokens`, {
     method: "POST",
+    credentials: "include",
     headers: {
-      "content-type": "application/json",
+      ...defaultHeaders,
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
       expires_in: 3600,
       note: "Created by Fancy Profiles for Build your Own Image",
     }),
-    credentials: "include",
   });
 
   if (!tokenResponse.ok) {
