@@ -1,6 +1,8 @@
 import * as React from "react";
 import { RepoProvider } from "./hooks/useRepositoryField";
 
+const TOKEN_KEY = "jupytherhub-build-token";
+
 export type BinderBuildArgs = {
   provider: RepoProvider;
   repo: string;
@@ -24,6 +26,56 @@ export type BinderBuildControls = {
   reset: () => void;
 };
 
+async function getApiToken() {
+  const xsrfToken = (`; ${document.cookie}`).split("; _xsrf=").pop()?.split(";")[0] ?? "";
+
+  const userResponse = await fetch(`/hub/api/user?_xsrf=${xsrfToken}`, {
+    credentials: "include",
+  });
+  if (!userResponse.ok) {
+    throw new Error(`Failed to get JupyterHub user: HTTP ${userResponse.status}`);
+  }
+
+  const { name } = await userResponse.json();
+
+  const existingToken = localStorage.getItem(TOKEN_KEY);
+  if (existingToken) {
+    const { id, expires_at, token } = JSON.parse(existingToken);
+    const expiryDate = Date.parse(expires_at);
+    const isExpired = expiryDate < new Date().getTime();
+
+    if (isExpired) {
+      localStorage.removeItem(TOKEN_KEY);
+      await fetch(`/hub/api/users/${name}/tokens/${id}?_xsrf=${xsrfToken}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+    } else {
+      return token as string;
+    }
+  }
+
+  const tokenResponse = await fetch(`/hub/api/users/${name}/tokens?_xsrf=${xsrfToken}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      expires_in: 3600,
+      note: "Created by Fancy Profiles for Build your Own Image",
+    }),
+    credentials: "include",
+  });
+
+  if (!tokenResponse.ok) {
+    throw new Error(`Failed to create JupyterHub API token: HTTP ${tokenResponse.status}`);
+  }
+
+  const res = await tokenResponse.json();
+  localStorage.setItem(TOKEN_KEY, JSON.stringify(res));
+  return res.token as string;
+}
+
 function safeTrim(s: string) {
   return (s ?? "").trim();
 }
@@ -45,12 +97,10 @@ function tryParseUrl(s: string): URL | null {
 }
 
 function encodePathSegmentStrict(s: string) {
-  // Encodes '/' as %2F
   return encodeURIComponent(s);
 }
 
 function encodePathKeepSlashes(s: string) {
-  // Keeps '/' unescaped (DOI-like specs)
   return encodeURI(s);
 }
 
@@ -99,8 +149,8 @@ function normalizeGist(input: string): { spec: string } {
 
 function normalizeZenodo(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
-
   const u = tryParseUrl(raw);
+
   const candidate = u
     ? stripTrailingSlash(
         `${u.host}${u.pathname}`.replace(/^doi\.org\//i, "").replace(/^dx\.doi\.org\//i, "")
@@ -142,6 +192,7 @@ function normalizeHydroshare(input: string): { spec: string } {
     const m = u.pathname.match(/\/resource\/([0-9a-fA-F-]{10,})/);
     if (m) return { spec: m[1] };
   }
+
   return { spec: raw };
 }
 
@@ -234,7 +285,7 @@ function providerKeepsSlashesInSpec(binderProvider: string) {
   return binderProvider === "zenodo" || binderProvider === "figshare" || binderProvider === "dataverse";
 }
 
-function buildBinderBuildUrl(args: BinderBuildArgs, opts?: { buildOnly?: boolean }): { url: string; display: string } {
+function buildBinderBuildUrl(args: BinderBuildArgs, opts?: { buildOnly?: boolean }) {
   const providerToken = mapToBinderProvider(args.provider);
   const norm = normalizeForProvider(args.provider, args.repo);
 
@@ -250,16 +301,14 @@ function buildBinderBuildUrl(args: BinderBuildArgs, opts?: { buildOnly?: boolean
   const query: string[] = [];
   const subdirRaw = safeTrim(args.subdir);
   if (subdirRaw) query.push(`subdir=${encodeURIComponent(subdirRaw)}`);
-
-  // IMPORTANT: Prevent BinderHub from trying to "launch" (and create temp users)
   if (opts?.buildOnly) query.push(`build_only=1`);
 
   let full = base;
 
   if (providerUsesRefInPath(providerToken)) {
     full = `${base}/${encodePathSegmentStrict(ref)}`;
-  } else {
-    if (refRaw) full = `${base}/${encodePathSegmentStrict(refRaw)}`;
+  } else if (refRaw) {
+    full = `${base}/${encodePathSegmentStrict(refRaw)}`;
   }
 
   if (query.length) full += `?${query.join("&")}`;
@@ -318,6 +367,7 @@ function looksLikeBuildOnlyNotPermitted(body: string) {
 async function streamBuild(
   url: string,
   display: string,
+  apiToken: string,
   ac: AbortController,
   setLogs: React.Dispatch<React.SetStateAction<string>>,
   setImageName: React.Dispatch<React.SetStateAction<string | null>>
@@ -327,7 +377,10 @@ async function streamBuild(
   const res = await fetch(url, {
     method: "GET",
     signal: ac.signal,
-    credentials: "same-origin",
+    credentials: "include",
+    headers: {
+      Authorization: `token ${apiToken}`,
+    },
   });
 
   if (!res.ok) {
@@ -406,33 +459,31 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
     setLogsOpen(true);
     setLogs("");
 
-    const first = buildBinderBuildUrl(args, { buildOnly: true });
-    const fallback = buildBinderBuildUrl(args, { buildOnly: false });
-
     (async () => {
       try {
-        await streamBuild(first.url, first.display, ac, setLogs, setImageName);
-        setStatus("done");
-      } catch (e: any) {
-        if (e?.name === "AbortError") return;
+        const apiToken = await getApiToken();
 
-        const raw = typeof e?._raw === "string" ? e._raw : "";
-        if (looksLikeBuildOnlyNotPermitted(raw)) {
-          appendLog(setLogs, `\n[info] build_only not permitted here, retrying without build_only...\n\n`);
-          try {
-            await streamBuild(fallback.url, fallback.display, ac, setLogs, setImageName);
+        const first = buildBinderBuildUrl(args, { buildOnly: true });
+        const fallback = buildBinderBuildUrl(args, { buildOnly: false });
+
+        try {
+          await streamBuild(first.url, first.display, apiToken, ac, setLogs, setImageName);
+          setStatus("done");
+        } catch (e: any) {
+          if (e?.name === "AbortError") return;
+
+          const raw = typeof e?._raw === "string" ? e._raw : "";
+          if (looksLikeBuildOnlyNotPermitted(raw)) {
+            appendLog(setLogs, `\n[info] build_only not permitted here, retrying without build_only...\n\n`);
+            await streamBuild(fallback.url, fallback.display, apiToken, ac, setLogs, setImageName);
             setStatus("done");
             return;
-          } catch (e2: any) {
-            if (e2?.name === "AbortError") return;
-            const msg2 = typeof e2?.message === "string" ? e2.message : String(e2);
-            setStatus("error");
-            setError(msg2);
-            appendLog(setLogs, `\n[failed] ${msg2}\n`);
-            return;
           }
-        }
 
+          throw e;
+        }
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
         const msg = typeof e?.message === "string" ? e.message : String(e);
         setStatus("error");
         setError(msg);
