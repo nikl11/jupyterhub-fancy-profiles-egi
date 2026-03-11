@@ -115,15 +115,12 @@ function normalizeGitlab(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
   const u = tryParseUrl(raw);
 
-  if (!u) {
-    return { spec: stripGitSuffix(raw.replace(/^\/+/, "")) };
-  }
+  if (!u) return { spec: stripGitSuffix(raw.replace(/^\/+/, "")) };
 
   const parts = u.pathname.split("/").filter(Boolean);
   const dashIdx = parts.indexOf("-");
   const useful = dashIdx >= 0 ? parts.slice(0, dashIdx) : parts;
-  const cleaned = useful.map((p) => stripGitSuffix(p)).join("/");
-  return { spec: cleaned };
+  return { spec: useful.map((p) => stripGitSuffix(p)).join("/") };
 }
 
 function normalizeGist(input: string): { spec: string } {
@@ -132,13 +129,11 @@ function normalizeGist(input: string): { spec: string } {
 
   if (!u) {
     const parts = raw.split("/").filter(Boolean);
-    const last = parts[parts.length - 1] ?? raw;
-    return { spec: last };
+    return { spec: parts[parts.length - 1] ?? raw };
   }
 
   const parts = u.pathname.split("/").filter(Boolean);
-  const last = parts[parts.length - 1] ?? raw;
-  return { spec: last };
+  return { spec: parts[parts.length - 1] ?? raw };
 }
 
 function normalizeZenodo(input: string): { spec: string } {
@@ -275,31 +270,72 @@ function providerUsesRef(providerToken: string) {
   return providerToken === "gh" || providerToken === "gl" || providerToken === "gist" || providerToken === "git";
 }
 
-function providerSpecForBinder(args: BinderBuildArgs): string {
+function buildBinderBuildUrl(args: BinderBuildArgs, apiToken: string) {
   const providerToken = mapToBinderProvider(args.provider);
   const norm = normalizeForProvider(args.provider, args.repo);
+  const refRaw = safeTrim(args.ref);
+  const ref = refRaw || "HEAD";
+  const subdir = safeTrim(args.subdir);
+
+  let path = `/services/binder/build/${providerToken}`;
 
   if (providerToken === "git") {
-    const ref = safeTrim(args.ref) || "HEAD";
-    return `${providerToken}/${encodeURIComponent(norm.spec)}/${ref}`;
+    path += `/${encodeURIComponent(norm.spec)}/${encodeURIComponent(ref)}`;
+  } else if (providerToken === "gh" || providerToken === "gl" || providerToken === "gist") {
+    // IMPORTANT: keep repo path segments separate, do not encode the whole owner/repo as one segment
+    const repoSegments = norm.spec.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+    path += `/${repoSegments}/${encodeURIComponent(ref)}`;
+  } else if (providerToken === "zenodo" || providerToken === "figshare" || providerToken === "dataverse") {
+    // DOI-like providers: keep slashes in spec
+    path += `/${encodeURI(norm.spec)}`;
+    if (refRaw) path += `/${encodeURIComponent(refRaw)}`;
+  } else {
+    // hydroshare / ckan and similar
+    path += `/${encodeURIComponent(norm.spec)}`;
+    if (refRaw) path += `/${encodeURIComponent(refRaw)}`;
   }
 
-  if (providerUsesRef(providerToken)) {
-    const ref = safeTrim(args.ref) || "HEAD";
-    return `${providerToken}/${norm.spec}/${ref}`;
+  const params = new URLSearchParams();
+  params.set("token", apiToken);
+  params.set("build_only", "1");
+  if (subdir) params.set("subdir", subdir);
+
+  return `${path}?${params.toString()}`;
+}
+
+function tryExtractImageNameFromLine(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("data:")) {
+    const jsonPart = trimmed.replace(/^data:\s*/, "");
+    try {
+      const obj: any = JSON.parse(jsonPart);
+      if (typeof obj?.imageName === "string" && obj.imageName.includes("/")) return obj.imageName;
+    } catch {
+      // ignore
+    }
   }
 
-  return `${providerToken}/${norm.spec}`;
-}
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const obj: any = JSON.parse(trimmed);
+      if (typeof obj?.imageName === "string" && obj.imageName.includes("/")) return obj.imageName;
+    } catch {
+      // ignore
+    }
+  }
 
-function subdirToBuildArgs(args: BinderBuildArgs) {
-  const subdir = safeTrim(args.subdir);
-  if (!subdir) return undefined;
-  return { subdir };
-}
+  const m1 = trimmed.match(/"imageName"\s*:\s*"([^"]+)"/);
+  if (m1) return m1[1];
 
-function appendLog(setter: React.Dispatch<React.SetStateAction<string>>, chunk: string) {
-  setter((prev) => prev + chunk);
+  const m2 = trimmed.match(/Built image:\s*(\S+)/i);
+  if (m2) return m2[1];
+
+  const m3 = trimmed.match(/--image(?:=|\s+)(\S+)/i);
+  if (m3) return m3[1];
+
+  return null;
 }
 
 export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
@@ -309,15 +345,11 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
   const [error, setError] = React.useState<string | null>(null);
   const [imageName, setImageName] = React.useState<string | null>(null);
 
-  const currentBuildRef = React.useRef<{ close?: () => void } | null>(null);
+  const abortRef = React.useRef<AbortController | null>(null);
 
   const reset = React.useCallback(() => {
-    try {
-      currentBuildRef.current?.close?.();
-    } catch {
-      // ignore
-    }
-    currentBuildRef.current = null;
+    abortRef.current?.abort();
+    abortRef.current = null;
     setStatus("idle");
     setLogs("");
     setLogsOpen(false);
@@ -330,12 +362,9 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
   const toggleLogs = React.useCallback(() => setLogsOpen((v) => !v), []);
 
   const startBuild = React.useCallback((args: BinderBuildArgs) => {
-    try {
-      currentBuildRef.current?.close?.();
-    } catch {
-      // ignore
-    }
-    currentBuildRef.current = null;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
 
     setStatus("building");
     setError(null);
@@ -346,74 +375,85 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
     (async () => {
       try {
         const apiToken = await getApiToken();
+        const url = buildBinderBuildUrl(args, apiToken);
 
-        // @ts-expect-error runtime import, package types may be incomplete
-        const { BinderRepository } = await import("@jupyterhub/binderhub-client/client.js");
+        setLogs(`Connecting to: ${url}\n`);
 
-        const providerSpec = providerSpecForBinder(args);
-        const buildEndPointURL = new URL("/services/binder/build/", window.location.origin);
-
-        const image = new BinderRepository(providerSpec, buildEndPointURL, {
-          apiToken,
-          buildOnly: true,
-          ...subdirToBuildArgs(args),
+        const res = await fetch(url, {
+          method: "GET",
+          signal: ac.signal,
+          credentials: "include",
         });
 
-        currentBuildRef.current = image;
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          throw new Error(t || `HTTP ${res.status}`);
+        }
 
-        appendLog(setLogs, `Connecting to: ${buildEndPointURL.toString()}${providerSpec}\n`);
+        const reader = res.body?.getReader();
+        if (!reader) {
+          const t = await res.text().catch(() => "");
+          setLogs((prev) => prev + (t ? t + "\n" : ""));
+          setStatus("done");
+          return;
+        }
 
-        for await (const data of image.fetch()) {
-          if (data?.message !== undefined) {
-            appendLog(setLogs, `data: ${JSON.stringify(data)}\n\n`);
-          } else {
-            appendLog(setLogs, `${JSON.stringify(data)}\n`);
-          }
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-          // IMPORTANT:
-          // Some backends ignore buildOnly and continue to launching/temp-user flow.
-          // As soon as we have a built image, we stop there and treat it as success.
-          if (data?.phase === "built" && data?.imageName) {
-            setImageName(data.imageName);
-            setStatus("done");
-            try {
-              image.close?.();
-            } catch {
-              // ignore
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          setLogs((prev) => prev + chunk);
+
+          buffer += chunk;
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            const found = tryExtractImageNameFromLine(line);
+            if (found) setImageName(found);
+
+            if (line.includes(`"phase": "built"`) && found) {
+              setStatus("done");
+              abortRef.current?.abort();
+              return;
             }
-            currentBuildRef.current = null;
-            return;
-          }
 
-          if (data?.phase === "ready" && data?.imageName) {
-            setImageName(data.imageName);
-            setStatus("done");
-            try {
-              image.close?.();
-            } catch {
-              // ignore
+            if (line.includes(`"phase": "ready"`) && found) {
+              setStatus("done");
+              abortRef.current?.abort();
+              return;
             }
-            currentBuildRef.current = null;
-            return;
-          }
 
-          if (data?.phase === "failed") {
-            try {
-              image.close?.();
-            } catch {
-              // ignore
+            if (line.includes(`"phase": "failed"`)) {
+              let msg = "Image build failed.";
+              try {
+                const jsonPart = line.replace(/^data:\s*/, "");
+                const obj = JSON.parse(jsonPart);
+                if (typeof obj?.message === "string") msg = obj.message;
+              } catch {
+                // ignore
+              }
+              throw new Error(msg);
             }
-            currentBuildRef.current = null;
-            throw new Error(data?.message || "Image build failed.");
           }
         }
 
-        currentBuildRef.current = null;
+        if (buffer) {
+          const found = tryExtractImageNameFromLine(buffer);
+          if (found) setImageName(found);
+        }
+
+        setStatus("done");
       } catch (e: any) {
+        if (e?.name === "AbortError") return;
         const msg = typeof e?.message === "string" ? e.message : String(e);
         setStatus("error");
         setError(msg);
-        appendLog(setLogs, `\n[failed] ${msg}\n`);
+        setLogs((prev) => prev + `\n[failed] ${msg}\n`);
       }
     })();
   }, []);
