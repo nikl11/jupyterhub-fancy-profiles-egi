@@ -1,8 +1,6 @@
 import * as React from "react";
 import { RepoProvider } from "./hooks/useRepositoryField";
 
-console.log("IMAGEBUILDER VERSION 2026-03-03-A");
-
 const TOKEN_KEY = "jupytherhub-build-token";
 
 export type BinderBuildArgs = {
@@ -37,7 +35,7 @@ async function getApiToken() {
 
   const defaultHeaders = {
     "X-XSRFToken": xsrfToken,
-    "Accept": "application/json",
+    Accept: "application/json",
   };
 
   const userResponse = await fetch(`/hub/api/user`, {
@@ -158,7 +156,7 @@ function normalizeZenodo(input: string): { spec: string } {
 
   const candidate = u
     ? stripTrailingSlash(
-        `${u.host}${u.pathname}`.replace(/^doi\.org\//i, "").replace(/^dx\.doi\.org\//i, "")
+        `${u.host}${u.pathname}`.replace(/^doi\.org\//i, "").replace(/^dx\.doi\.org\//i, ""),
       )
     : raw;
 
@@ -286,7 +284,7 @@ function providerUsesRef(providerToken: string) {
   return providerToken === "gh" || providerToken === "gl" || providerToken === "gist" || providerToken === "git";
 }
 
-function buildBinderBuildUrl(args: BinderBuildArgs, apiToken: string) {
+function buildBinderBuildUrl(args: BinderBuildArgs, apiToken: string | null) {
   const providerToken = mapToBinderProvider(args.provider);
   const norm = normalizeForProvider(args.provider, args.repo);
   const refRaw = safeTrim(args.ref);
@@ -298,21 +296,22 @@ function buildBinderBuildUrl(args: BinderBuildArgs, apiToken: string) {
   if (providerToken === "git") {
     path += `/${encodeURIComponent(norm.spec)}/${encodeURIComponent(ref)}`;
   } else if (providerToken === "gh" || providerToken === "gl" || providerToken === "gist") {
-    // IMPORTANT: keep repo path segments separate, do not encode the whole owner/repo as one segment
-    const repoSegments = norm.spec.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+    const repoSegments = norm.spec
+      .split("/")
+      .filter(Boolean)
+      .map(encodeURIComponent)
+      .join("/");
     path += `/${repoSegments}/${encodeURIComponent(ref)}`;
   } else if (providerToken === "zenodo" || providerToken === "figshare" || providerToken === "dataverse") {
-    // DOI-like providers: keep slashes in spec
     path += `/${encodeURI(norm.spec)}`;
     if (refRaw) path += `/${encodeURIComponent(refRaw)}`;
   } else {
-    // hydroshare / ckan and similar
     path += `/${encodeURIComponent(norm.spec)}`;
     if (refRaw) path += `/${encodeURIComponent(refRaw)}`;
   }
 
   const params = new URLSearchParams();
-  params.set("token", apiToken);
+  if (apiToken) params.set("token", apiToken);
   params.set("build_only", "1");
   if (subdir) params.set("subdir", subdir);
 
@@ -390,10 +389,19 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
 
     (async () => {
       try {
-        const apiToken = await getApiToken();
-        const url = buildBinderBuildUrl(args, apiToken);
+        let apiToken: string | null = null;
 
-        setLogs(`Connecting to: ${url}\n`);
+        try {
+          apiToken = await getApiToken();
+          setLogs((prev) => prev + "[info] Hub API token acquired successfully.\n");
+        } catch (e: any) {
+          const msg = typeof e?.message === "string" ? e.message : String(e);
+          setLogs((prev) => prev + `[info] Hub API token unavailable, continuing with session auth only: ${msg}\n`);
+          apiToken = null;
+        }
+
+        const url = buildBinderBuildUrl(args, apiToken);
+        setLogs((prev) => prev + `Connecting to: ${url}\n`);
 
         const res = await fetch(url, {
           method: "GET",
