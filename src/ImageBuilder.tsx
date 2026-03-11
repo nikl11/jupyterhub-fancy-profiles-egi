@@ -1,6 +1,8 @@
 import * as React from "react";
 import { RepoProvider } from "./hooks/useRepositoryField";
 
+console.log("IMAGEBUILDER VERSION 2026-03-03-A");
+
 const TOKEN_KEY = "jupytherhub-build-token";
 
 export type BinderBuildArgs = {
