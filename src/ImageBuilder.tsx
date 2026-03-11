@@ -96,14 +96,6 @@ function tryParseUrl(s: string): URL | null {
   }
 }
 
-function encodePathSegmentStrict(s: string) {
-  return encodeURIComponent(s);
-}
-
-function encodePathKeepSlashes(s: string) {
-  return encodeURI(s);
-}
-
 function normalizeGithub(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
   const u = tryParseUrl(raw);
@@ -123,7 +115,9 @@ function normalizeGitlab(input: string): { spec: string } {
   const raw = stripTrailingSlash(safeTrim(input));
   const u = tryParseUrl(raw);
 
-  if (!u) return { spec: stripGitSuffix(raw.replace(/^\/+/, "")) };
+  if (!u) {
+    return { spec: stripGitSuffix(raw.replace(/^\/+/, "")) };
+  }
 
   const parts = u.pathname.split("/").filter(Boolean);
   const dashIdx = parts.indexOf("-");
@@ -277,152 +271,35 @@ function normalizeForProvider(p: RepoProvider, repoRaw: string) {
   }
 }
 
-function providerUsesRefInPath(binderProvider: string) {
-  return binderProvider === "gh" || binderProvider === "gl" || binderProvider === "gist" || binderProvider === "git";
+function providerUsesRef(providerToken: string) {
+  return providerToken === "gh" || providerToken === "gl" || providerToken === "gist" || providerToken === "git";
 }
 
-function providerKeepsSlashesInSpec(binderProvider: string) {
-  return binderProvider === "zenodo" || binderProvider === "figshare" || binderProvider === "dataverse";
-}
-
-function buildBinderBuildUrl(args: BinderBuildArgs, opts?: { buildOnly?: boolean }) {
+function providerSpecForBinder(args: BinderBuildArgs): string {
   const providerToken = mapToBinderProvider(args.provider);
   const norm = normalizeForProvider(args.provider, args.repo);
 
-  const specEncoded = providerKeepsSlashesInSpec(providerToken)
-    ? encodePathKeepSlashes(norm.spec)
-    : encodePathSegmentStrict(norm.spec);
-
-  const base = `/services/binder/build/${providerToken}/${specEncoded}`;
-
-  const refRaw = safeTrim(args.ref);
-  const ref = refRaw || "HEAD";
-
-  const query: string[] = [];
-  const subdirRaw = safeTrim(args.subdir);
-  if (subdirRaw) query.push(`subdir=${encodeURIComponent(subdirRaw)}`);
-  if (opts?.buildOnly) query.push(`build_only=1`);
-
-  let full = base;
-
-  if (providerUsesRefInPath(providerToken)) {
-    full = `${base}/${encodePathSegmentStrict(ref)}`;
-  } else if (refRaw) {
-    full = `${base}/${encodePathSegmentStrict(refRaw)}`;
+  if (providerToken === "git") {
+    const ref = safeTrim(args.ref) || "HEAD";
+    return `${providerToken}/${encodeURIComponent(norm.spec)}/${ref}`;
   }
 
-  if (query.length) full += `?${query.join("&")}`;
+  if (providerUsesRef(providerToken)) {
+    const ref = safeTrim(args.ref) || "HEAD";
+    return `${providerToken}/${norm.spec}/${ref}`;
+  }
 
-  return { url: full, display: full };
+  return `${providerToken}/${norm.spec}`;
+}
+
+function subdirToBuildArgs(args: BinderBuildArgs) {
+  const subdir = safeTrim(args.subdir);
+  if (!subdir) return undefined;
+  return { subdir };
 }
 
 function appendLog(setter: React.Dispatch<React.SetStateAction<string>>, chunk: string) {
   setter((prev) => prev + chunk);
-}
-
-function tryExtractImageNameFromLine(line: string): string | null {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-
-  if (trimmed.startsWith("data:")) {
-    const jsonPart = trimmed.replace(/^data:\s*/, "");
-    try {
-      const obj: any = JSON.parse(jsonPart);
-      if (typeof obj?.imageName === "string" && obj.imageName.includes("/")) return obj.imageName;
-    } catch {
-      // ignore
-    }
-  }
-
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-    try {
-      const obj: any = JSON.parse(trimmed);
-      if (typeof obj?.imageName === "string" && obj.imageName.includes("/")) return obj.imageName;
-      const candidates = [obj.image, obj.image_name, obj["image-name"], obj["image_name"]];
-      for (const c of candidates) {
-        if (typeof c === "string" && c.includes("/")) return c;
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  const m1 = trimmed.match(/"imageName"\s*:\s*"([^"]+)"/);
-  if (m1) return m1[1];
-
-  const m2 = trimmed.match(/Built image:\s*(\S+)/i);
-  if (m2) return m2[1];
-
-  const m3 = trimmed.match(/--image(?:=|\s+)(\S+)/i);
-  if (m3) return m3[1];
-
-  return null;
-}
-
-function looksLikeBuildOnlyNotPermitted(body: string) {
-  const s = (body || "").toLowerCase();
-  return s.includes("build_only") && (s.includes("not permitted") || s.includes("not allowed") || s.includes("api only"));
-}
-
-async function streamBuild(
-  url: string,
-  display: string,
-  apiToken: string,
-  ac: AbortController,
-  setLogs: React.Dispatch<React.SetStateAction<string>>,
-  setImageName: React.Dispatch<React.SetStateAction<string | null>>
-) {
-  appendLog(setLogs, `Connecting to: ${display}\n`);
-
-  const res = await fetch(url, {
-    method: "GET",
-    signal: ac.signal,
-    credentials: "include",
-    headers: {
-      Authorization: `token ${apiToken}`,
-    },
-  });
-
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    const msg = t || `HTTP ${res.status}`;
-    const err: any = new Error(msg);
-    err._raw = t;
-    err._status = res.status;
-    throw err;
-  }
-
-  const reader = res.body?.getReader();
-  if (!reader) {
-    const t = await res.text().catch(() => "");
-    appendLog(setLogs, t ? t + "\n" : "\n");
-    return;
-  }
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-
-    const chunk = decoder.decode(value, { stream: true });
-    appendLog(setLogs, chunk);
-
-    buffer += chunk;
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      const found = tryExtractImageNameFromLine(line);
-      if (found) setImageName(found);
-    }
-  }
-
-  if (buffer) {
-    const found = tryExtractImageNameFromLine(buffer);
-    if (found) setImageName(found);
-  }
 }
 
 export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
@@ -432,11 +309,15 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
   const [error, setError] = React.useState<string | null>(null);
   const [imageName, setImageName] = React.useState<string | null>(null);
 
-  const abortRef = React.useRef<AbortController | null>(null);
+  const currentBuildRef = React.useRef<{ close?: () => void } | null>(null);
 
   const reset = React.useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
+    try {
+      currentBuildRef.current?.close?.();
+    } catch {
+      // ignore
+    }
+    currentBuildRef.current = null;
     setStatus("idle");
     setLogs("");
     setLogsOpen(false);
@@ -449,9 +330,12 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
   const toggleLogs = React.useCallback(() => setLogsOpen((v) => !v), []);
 
   const startBuild = React.useCallback((args: BinderBuildArgs) => {
-    abortRef.current?.abort();
-    const ac = new AbortController();
-    abortRef.current = ac;
+    try {
+      currentBuildRef.current?.close?.();
+    } catch {
+      // ignore
+    }
+    currentBuildRef.current = null;
 
     setStatus("building");
     setError(null);
@@ -463,27 +347,69 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
       try {
         const apiToken = await getApiToken();
 
-        const first = buildBinderBuildUrl(args, { buildOnly: true });
-        const fallback = buildBinderBuildUrl(args, { buildOnly: false });
+        // @ts-expect-error runtime import, package types may be incomplete
+        const { BinderRepository } = await import("@jupyterhub/binderhub-client/client.js");
 
-        try {
-          await streamBuild(first.url, first.display, apiToken, ac, setLogs, setImageName);
-          setStatus("done");
-        } catch (e: any) {
-          if (e?.name === "AbortError") return;
+        const providerSpec = providerSpecForBinder(args);
+        const buildEndPointURL = new URL("/services/binder/build/", window.location.origin);
 
-          const raw = typeof e?._raw === "string" ? e._raw : "";
-          if (looksLikeBuildOnlyNotPermitted(raw)) {
-            appendLog(setLogs, `\n[info] build_only not permitted here, retrying without build_only...\n\n`);
-            await streamBuild(fallback.url, fallback.display, apiToken, ac, setLogs, setImageName);
+        const image = new BinderRepository(providerSpec, buildEndPointURL, {
+          apiToken,
+          buildOnly: true,
+          ...subdirToBuildArgs(args),
+        });
+
+        currentBuildRef.current = image;
+
+        appendLog(setLogs, `Connecting to: ${buildEndPointURL.toString()}${providerSpec}\n`);
+
+        for await (const data of image.fetch()) {
+          if (data?.message !== undefined) {
+            appendLog(setLogs, `data: ${JSON.stringify(data)}\n\n`);
+          } else {
+            appendLog(setLogs, `${JSON.stringify(data)}\n`);
+          }
+
+          // IMPORTANT:
+          // Some backends ignore buildOnly and continue to launching/temp-user flow.
+          // As soon as we have a built image, we stop there and treat it as success.
+          if (data?.phase === "built" && data?.imageName) {
+            setImageName(data.imageName);
             setStatus("done");
+            try {
+              image.close?.();
+            } catch {
+              // ignore
+            }
+            currentBuildRef.current = null;
             return;
           }
 
-          throw e;
+          if (data?.phase === "ready" && data?.imageName) {
+            setImageName(data.imageName);
+            setStatus("done");
+            try {
+              image.close?.();
+            } catch {
+              // ignore
+            }
+            currentBuildRef.current = null;
+            return;
+          }
+
+          if (data?.phase === "failed") {
+            try {
+              image.close?.();
+            } catch {
+              // ignore
+            }
+            currentBuildRef.current = null;
+            throw new Error(data?.message || "Image build failed.");
+          }
         }
+
+        currentBuildRef.current = null;
       } catch (e: any) {
-        if (e?.name === "AbortError") return;
         const msg = typeof e?.message === "string" ? e.message : String(e);
         setStatus("error");
         setError(msg);
