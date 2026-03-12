@@ -1,5 +1,13 @@
 import * as React from "react";
-import { RepoProvider } from "./hooks/useRepositoryField";
+import { useEffect, useState, useRef, useContext, useMemo, KeyboardEventHandler } from "react";
+import { type Terminal } from "xterm";
+import { type FitAddon } from "xterm-addon-fit";
+
+import useRepositoryField, { type RepoProvider } from "./hooks/useRepositoryField";
+import Combobox from "./components/form/Combobox";
+import useFormCache from "./hooks/useFormCache";
+import { PermalinkContext } from "./context/Permalink";
+import { ICustomOptionProps } from "./types/fields";
 
 const TOKEN_KEY = "jupytherhub-build-token";
 
@@ -27,67 +35,42 @@ export type BinderBuildControls = {
 };
 
 async function getApiToken() {
-  const xsrfToken = (`; ${document.cookie}`).split("; _xsrf=").pop()?.split(";")[0] ?? "";
-
-  if (!xsrfToken) {
-    throw new Error("Missing _xsrf cookie");
-  }
-
-  const defaultHeaders = {
-    "X-XSRFToken": xsrfToken,
-    Accept: "application/json",
-  };
-
-  const userResponse = await fetch(`/hub/api/user`, {
-    method: "GET",
-    credentials: "include",
-    headers: defaultHeaders,
-  });
-
-  if (!userResponse.ok) {
-    throw new Error(`Failed to get JupyterHub user: HTTP ${userResponse.status}`);
-  }
-
+  const xsrfToken = (`; ${document.cookie}`).split("; _xsrf=").pop().split(";")[0];
+  const userResponse = await fetch(`/hub/api/user?_xsrf=${xsrfToken}`);
   const { name } = await userResponse.json();
 
-  const existingToken = localStorage.getItem(TOKEN_KEY);
-  if (existingToken) {
-    const { id, expires_at, token } = JSON.parse(existingToken);
+  const exisitingToken = localStorage.getItem(TOKEN_KEY);
+  if (exisitingToken) {
+    const { id, expires_at, token } = JSON.parse(exisitingToken);
     const expiryDate = Date.parse(expires_at);
     const isExpired = expiryDate < new Date().getTime();
 
     if (isExpired) {
+      // Token is expired, deleting from server and localStorage
       localStorage.removeItem(TOKEN_KEY);
-      await fetch(`/hub/api/users/${name}/tokens/${id}`, {
-        method: "DELETE",
-        credentials: "include",
-        headers: defaultHeaders,
+      await fetch(`/hub/api/users/${name}/tokens/${id}?_xsrf=${xsrfToken}`, {
+        method: "DELETE"
       });
     } else {
-      return token as string;
+      return token;
     }
   }
 
-  const tokenResponse = await fetch(`/hub/api/users/${name}/tokens`, {
+  // No token or token is expired, requesting a new token
+  const tokenResponse = await fetch(`/hub/api/users/${name}/tokens?_xsrf=${xsrfToken}`, {
     method: "POST",
-    credentials: "include",
     headers: {
-      ...defaultHeaders,
-      "Content-Type": "application/json",
+      "content-type": "application/json",
     },
     body: JSON.stringify({
       expires_in: 3600,
-      note: "Created by Fancy Profiles for Build your Own Image",
+      note: "Created by Fancy Profiles for Build your Own Image"
     }),
+    credentials: "include"
   });
-
-  if (!tokenResponse.ok) {
-    throw new Error(`Failed to create JupyterHub API token: HTTP ${tokenResponse.status}`);
-  }
-
   const res = await tokenResponse.json();
   localStorage.setItem(TOKEN_KEY, JSON.stringify(res));
-  return res.token as string;
+  return res.token;
 }
 
 function safeTrim(s: string) {
@@ -284,73 +267,336 @@ function providerUsesRef(providerToken: string) {
   return providerToken === "gh" || providerToken === "gl" || providerToken === "gist" || providerToken === "git";
 }
 
-function buildBinderBuildUrl(args: BinderBuildArgs, apiToken: string | null) {
+function buildProviderSpec(args: BinderBuildArgs) {
   const providerToken = mapToBinderProvider(args.provider);
   const norm = normalizeForProvider(args.provider, args.repo);
   const refRaw = safeTrim(args.ref);
   const ref = refRaw || "HEAD";
-  const subdir = safeTrim(args.subdir);
 
-  let path = `/services/binder/build/${providerToken}`;
-
-  if (providerToken === "git") {
-    path += `/${encodeURIComponent(norm.spec)}/${encodeURIComponent(ref)}`;
-  } else if (providerToken === "gh" || providerToken === "gl" || providerToken === "gist") {
-    const repoSegments = norm.spec
-      .split("/")
-      .filter(Boolean)
-      .map(encodeURIComponent)
-      .join("/");
-    path += `/${repoSegments}/${encodeURIComponent(ref)}`;
-  } else if (providerToken === "zenodo" || providerToken === "figshare" || providerToken === "dataverse") {
-    path += `/${encodeURI(norm.spec)}`;
-    if (refRaw) path += `/${encodeURIComponent(refRaw)}`;
-  } else {
-    path += `/${encodeURIComponent(norm.spec)}`;
-    if (refRaw) path += `/${encodeURIComponent(refRaw)}`;
+  if (providerUsesRef(providerToken)) {
+    return `${providerToken}/${norm.spec}/${ref}`;
   }
 
-  const params = new URLSearchParams();
-  if (apiToken) params.set("token", apiToken);
-  params.set("build_only", "1");
-  if (subdir) params.set("subdir", subdir);
+  if (refRaw) {
+    return `${providerToken}/${norm.spec}/${refRaw}`;
+  }
 
-  return `${path}?${params.toString()}`;
+  return `${providerToken}/${norm.spec}`;
 }
 
-function tryExtractImageNameFromLine(line: string): string | null {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
+async function buildImageFromArgs(
+  args: BinderBuildArgs,
+  onLog: (chunk: string) => void,
+) {
+  const apiToken = await getApiToken();
 
-  if (trimmed.startsWith("data:")) {
-    const jsonPart = trimmed.replace(/^data:\s*/, "");
-    try {
-      const obj: any = JSON.parse(jsonPart);
-      if (typeof obj?.imageName === "string" && obj.imageName.includes("/")) return obj.imageName;
-    } catch {
-      // ignore
-    }
+  // @ts-expect-error - v0.5.0 client types not available
+  const { BinderRepository } = await import("@jupyterhub/binderhub-client/client.js");
+  const providerSpec = buildProviderSpec(args);
+  const buildEndPointURL = new URL(
+    "/services/binder/build/",
+    window.location.origin,
+  );
+
+  if (safeTrim(args.subdir)) {
+    buildEndPointURL.searchParams.set("subdir", safeTrim(args.subdir));
   }
 
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-    try {
-      const obj: any = JSON.parse(trimmed);
-      if (typeof obj?.imageName === "string" && obj.imageName.includes("/")) return obj.imageName;
-    } catch {
-      // ignore
+  const image = new BinderRepository(
+    providerSpec,
+    buildEndPointURL,
+    {
+      apiToken,
+      buildOnly: true,
+    }
+  );
+
+  for await (const data of image.fetch()) {
+    if (data.message !== undefined) {
+      onLog(data.message);
+    } else {
+      onLog(`${JSON.stringify(data)}\n`);
+    }
+
+    switch (data.phase) {
+      case "failed": {
+        image.close();
+        return Promise.reject(new Error(data.message || "Image build failed."));
+      }
+      case "ready": {
+        image.close();
+        return Promise.resolve(data.imageName);
+      }
+      default: {
+        break;
+      }
     }
   }
+}
 
-  const m1 = trimmed.match(/"imageName"\s*:\s*"([^"]+)"/);
-  if (m1) return m1[1];
+interface IImageLogs {
+  setTerm: React.Dispatch<React.SetStateAction<Terminal>>;
+  setFitAddon: React.Dispatch<React.SetStateAction<FitAddon>>;
+  name: string;
+}
 
-  const m2 = trimmed.match(/Built image:\s*(\S+)/i);
-  if (m2) return m2[1];
+function ImageLogs({ setTerm, setFitAddon, name }: IImageLogs) {
+  const terminalId = `${name}--terminal`;
+  useEffect(() => {
+    async function setup() {
+      const { Terminal } = await import("xterm");
+      const { FitAddon } = await import("xterm-addon-fit");
+      const term = new Terminal({
+        convertEol: true,
+        disableStdin: true,
+        // 60 cols is pretty small, but unfortunately we have very limited width
+        // available in our form!
+        cols: 66,
+        rows: 1,
+        // Increase scrollback since image builds can sometimes produce a ton of output
+        scrollback: 10000,
+        // colors checked with the contrast checker at https://webaim.org/resources/contrastchecker/
+        theme: {
+          red: "\x1b[38;2;248;113;133m",
+          green: "\x1b[38;2;134;239;172m",
+          yellow: "\x1b[38;2;253;224;71m",
+          blue: "\x1b[38;2;147;197;253m",
+          magenta: "\x1b[38;2;249;168;212m",
+          cyan: "\x1b[38;2;103;232;249m",
+        },
+      });
+      const fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(document.getElementById(terminalId));
+      fitAddon.fit();
+      setTerm(term);
+      setFitAddon(fitAddon);
+      term.write("Logs will appear here when image is being built");
+    }
+    setup();
+  }, []);
 
-  const m3 = trimmed.match(/--image(?:=|\s+)(\S+)/i);
-  if (m3) return m3[1];
+  return (
+    <div className="terminal-container border">
+      <div id={terminalId} />
+    </div>
+  );
+}
 
-  return null;
+export function ImageBuilder(props?: Partial<ICustomOptionProps>) {
+  if (!props?.name || props.isActive === undefined || !props.optionKey) {
+    return null;
+  }
+
+  const { name, isActive, optionKey } = props as ICustomOptionProps;
+  const { setPermalinkValue, permalinkValues } = useContext(PermalinkContext);
+
+  const repoRef = permalinkValues[`${optionKey}:ref`];
+  const binderRepo = permalinkValues[`${optionKey}:binderRepo`];
+  const { repo, repoId, repoFieldProps, repoError } =
+    useRepositoryField(binderRepo);
+  const { getRepositoryOptions, getRefOptions, removeRefOption, removeRepositoryOption } = useFormCache();
+
+  const [ref, setRef] = useState<string>(repoRef || "HEAD");
+  const repoFieldRef = useRef<HTMLInputElement>();
+  const branchFieldRef = useRef<HTMLInputElement>();
+
+  const [customImage, setCustomImage] = useState<string>("");
+  const [customImageError, setCustomImageError] = useState<string>(null);
+
+  const [term, setTerm] = useState<Terminal>(null);
+  const [fitAddon, setFitAddon] = useState<FitAddon>(null);
+
+  const [isBuildingImage, setIsBuildingImage] = useState<boolean>(false);
+
+  const repositoryOptions = getRepositoryOptions(name);
+  const refOptions = useMemo(() => {
+    return getRefOptions(name, repoId);
+  }, [repoId]);
+
+  useEffect(() => {
+    if (!isActive) setCustomImageError("");
+  }, [isActive]);
+
+  if (isActive) {
+    setPermalinkValue(`${optionKey}:binderProvider`, "gh");
+    setPermalinkValue(`${optionKey}:binderRepo`, repoId);
+    setPermalinkValue(`${optionKey}:ref`, ref);
+  }
+
+  const handleBuildStart = async () => {
+    if (repoFieldRef.current && !repo) {
+      repoFieldRef.current.focus();
+      repoFieldRef.current.blur();
+      return;
+    }
+
+    if (branchFieldRef.current && !ref) {
+      branchFieldRef.current.focus();
+      branchFieldRef.current.blur();
+      return;
+    }
+
+    setIsBuildingImage(true);
+    buildImage(repoId, ref, term, fitAddon)
+      .then((imageName) => {
+        setCustomImage(imageName);
+        term.write(
+          "\nImage has been built! Click the start button to launch your server",
+        );
+      })
+      .catch(() => console.log("Error building image."))
+      .finally(() => setIsBuildingImage(false));
+  };
+
+  const handleKeyDown: KeyboardEventHandler<HTMLInputElement> = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      (e.target as HTMLInputElement).blur();
+      handleBuildStart();
+    }
+  };
+
+  // We render everything, but only toggle visibility based on wether we are being
+  // shown or hidden. This provides for more DOM stability, and also allows the image
+  // to continue being built evn if the user moves away elsewhere. When hidden, we just
+  // don't generate the hidden input that posts the built image out.
+  return (
+    <>
+      <div className="profile-option-container">
+        <div className="profile-option-label-container">Provider</div>
+        <div className="profile-option-control-container">GitHub</div>
+      </div>
+
+      <Combobox
+        id={`${name}--repo`}
+        className={isActive ? "cache-repository" : undefined}
+        label="Repository"
+        ref={repoFieldRef}
+        {...repoFieldProps}
+        error={repoError}
+        options={repositoryOptions}
+        autoComplete="off"
+        onRemoveOption={(option) => removeRepositoryOption(name, option)}
+        validate={
+          isActive && {
+            required: "Provide the repository as the format 'organization/repository'.",
+          }
+        }
+        onKeyDown={handleKeyDown}
+      />
+      <Combobox
+        id={`${name}--ref`}
+        label="Git Ref"
+        ref={branchFieldRef}
+        hint="Branch, Tag or Commit to use. HEAD will use the default branch"
+        value={ref}
+        validate={
+          isActive && {
+            required: "Enter a git ref.",
+          }
+        }
+        onChange={(e) => setRef(e.target.value)}
+        onBlur={(e) => {
+          setRef(e.target.value.trim());
+        }}
+        tabIndex={isActive ? 0 : -1}
+        options={refOptions}
+        autoComplete="off"
+        onRemoveOption={(option) => {
+          removeRefOption(name, repoFieldProps.value, option);
+        }}
+      />
+
+      <div className="right-button">
+        <button
+          type="button"
+          className="btn btn-jupyter"
+          onClick={handleBuildStart}
+          disabled={isBuildingImage}
+        >
+          Build image
+        </button>
+      </div>
+      <input
+        type="text"
+        name={name}
+        value={customImage}
+        aria-invalid={isActive && !customImage}
+        required={isActive}
+        aria-hidden="true"
+        style={{ display: "none" }}
+        onInvalid={() =>
+          setCustomImageError("Wait for the image build to complete.")}
+        onChange={() => {}} // Hack to prevent a console error, while at the same time allowing for this field to be validatable, ie.
+      />
+      {customImageError && isActive ? (
+        <div className="field-error">{customImageError}</div>
+      ) : null}
+      <ImageLogs setTerm={setTerm} setFitAddon={setFitAddon} name={name} />
+    </>
+  );
+}
+
+async function buildImage(
+  repo: string,
+  ref: string,
+  term: Terminal,
+  fitAddon: FitAddon,
+) {
+  const apiToken = await getApiToken();
+
+  // @ts-expect-error - v0.5.0 client types not available
+  const { BinderRepository } = await import("@jupyterhub/binderhub-client/client.js");
+  const providerSpec = "gh/" + repo + "/" + ref;
+  // FIXME: Assume the binder api is available in the same hostname, under /services/binder/
+  const buildEndPointURL = new URL(
+    "/services/binder/build/",
+    window.location.origin,
+  );
+
+  // Use new v0.5.0 API with options object - only apiToken needed for auth
+  const image = new BinderRepository(
+    providerSpec,
+    buildEndPointURL,
+    {
+      apiToken,     // JupyterHub API token for Authorization header
+      buildOnly: true,
+    }
+  );
+  // Clear the last line written, so we start from scratch
+  term.write("\x1b[2K\r");
+  term.resize(66, 16);
+  fitAddon.fit();
+
+  for await (const data of image.fetch()) {
+    // Write message to the log terminal if there is a message
+    if (data.message !== undefined) {
+      // Write out all messages to the terminal!
+      term.write(data.message);
+      // Resize our terminal to make sure it fits messages appropriately
+      fitAddon.fit();
+    } else {
+      console.log(data);
+    }
+
+    switch (data.phase) {
+      case "failed": {
+        image.close();
+        return Promise.reject();
+      }
+      case "ready": {
+        // Close the EventStream when the image has been built
+        image.close();
+        return Promise.resolve(data.imageName);
+      }
+      default: {
+        console.log("Unknown phase in response from server");
+        console.log(data);
+        break;
+      }
+    }
+  }
 }
 
 export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
@@ -360,11 +606,10 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
   const [error, setError] = React.useState<string | null>(null);
   const [imageName, setImageName] = React.useState<string | null>(null);
 
-  const abortRef = React.useRef<AbortController | null>(null);
+  const buildIdRef = React.useRef(0);
 
   const reset = React.useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
+    buildIdRef.current += 1;
     setStatus("idle");
     setLogs("");
     setLogsOpen(false);
@@ -377,9 +622,8 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
   const toggleLogs = React.useCallback(() => setLogsOpen((v) => !v), []);
 
   const startBuild = React.useCallback((args: BinderBuildArgs) => {
-    abortRef.current?.abort();
-    const ac = new AbortController();
-    abortRef.current = ac;
+    const buildId = buildIdRef.current + 1;
+    buildIdRef.current = buildId;
 
     setStatus("building");
     setError(null);
@@ -389,91 +633,17 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
 
     (async () => {
       try {
-        let apiToken: string | null = null;
-
-        try {
-          apiToken = await getApiToken();
-          setLogs((prev) => prev + "[info] Hub API token acquired successfully.\n");
-        } catch (e: any) {
-          const msg = typeof e?.message === "string" ? e.message : String(e);
-          setLogs((prev) => prev + `[info] Hub API token unavailable, continuing with session auth only: ${msg}\n`);
-          apiToken = null;
-        }
-
-        const url = buildBinderBuildUrl(args, apiToken);
-        setLogs((prev) => prev + `Connecting to: ${url}\n`);
-
-        const res = await fetch(url, {
-          method: "GET",
-          signal: ac.signal,
-          credentials: "include",
+        const builtImage = await buildImageFromArgs(args, (chunk) => {
+          if (buildIdRef.current !== buildId) return;
+          setLogs((prev) => prev + chunk);
         });
 
-        if (!res.ok) {
-          const t = await res.text().catch(() => "");
-          throw new Error(t || `HTTP ${res.status}`);
-        }
-
-        const reader = res.body?.getReader();
-        if (!reader) {
-          const t = await res.text().catch(() => "");
-          setLogs((prev) => prev + (t ? t + "\n" : ""));
-          setStatus("done");
-          return;
-        }
-
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          setLogs((prev) => prev + chunk);
-
-          buffer += chunk;
-          const lines = buffer.split(/\r?\n/);
-          buffer = lines.pop() ?? "";
-
-          for (const line of lines) {
-            const found = tryExtractImageNameFromLine(line);
-            if (found) setImageName(found);
-
-            if (line.includes(`"phase": "built"`) && found) {
-              setStatus("done");
-              abortRef.current?.abort();
-              return;
-            }
-
-            if (line.includes(`"phase": "ready"`) && found) {
-              setStatus("done");
-              abortRef.current?.abort();
-              return;
-            }
-
-            if (line.includes(`"phase": "failed"`)) {
-              let msg = "Image build failed.";
-              try {
-                const jsonPart = line.replace(/^data:\s*/, "");
-                const obj = JSON.parse(jsonPart);
-                if (typeof obj?.message === "string") msg = obj.message;
-              } catch {
-                // ignore
-              }
-              throw new Error(msg);
-            }
-          }
-        }
-
-        if (buffer) {
-          const found = tryExtractImageNameFromLine(buffer);
-          if (found) setImageName(found);
-        }
-
+        if (buildIdRef.current !== buildId) return;
+        setImageName(builtImage);
         setStatus("done");
+        setLogs((prev) => prev + "\nImage has been built! Click the start button to launch your server\n");
       } catch (e: any) {
-        if (e?.name === "AbortError") return;
+        if (buildIdRef.current !== buildId) return;
         const msg = typeof e?.message === "string" ? e.message : String(e);
         setStatus("error");
         setError(msg);
