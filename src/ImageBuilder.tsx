@@ -33,7 +33,8 @@ async function getApiToken() {
     throw new Error("Missing _xsrf cookie");
   }
 
-  const userResponse = await fetch(`/hub/api/user?_xsrf=${xsrfToken}`, {
+  const userResponse = await fetch(`/hub/api/user?_xsrf=${encodeURIComponent(xsrfToken)}`, {
+    method: "GET",
     credentials: "include",
   });
 
@@ -51,7 +52,7 @@ async function getApiToken() {
 
     if (isExpired) {
       localStorage.removeItem(TOKEN_KEY);
-      await fetch(`/hub/api/users/${name}/tokens/${id}?_xsrf=${xsrfToken}`, {
+      await fetch(`/hub/api/users/${name}/tokens/${id}?_xsrf=${encodeURIComponent(xsrfToken)}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -60,7 +61,7 @@ async function getApiToken() {
     }
   }
 
-  const tokenResponse = await fetch(`/hub/api/users/${name}/tokens?_xsrf=${xsrfToken}`, {
+  const tokenResponse = await fetch(`/hub/api/users/${name}/tokens?_xsrf=${encodeURIComponent(xsrfToken)}`, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -275,7 +276,7 @@ function providerUsesRef(providerToken: string) {
   return providerToken === "gh" || providerToken === "gl" || providerToken === "gist" || providerToken === "git";
 }
 
-function buildBinderBuildUrl(args: BinderBuildArgs, apiToken: string | null) {
+function buildBinderBuildUrl(args: BinderBuildArgs) {
   const providerToken = mapToBinderProvider(args.provider);
   const norm = normalizeForProvider(args.provider, args.repo);
   const refRaw = safeTrim(args.ref);
@@ -302,7 +303,6 @@ function buildBinderBuildUrl(args: BinderBuildArgs, apiToken: string | null) {
   }
 
   const params = new URLSearchParams();
-  if (apiToken) params.set("token", apiToken);
   params.set("build_only", "1");
   if (subdir) params.set("subdir", subdir);
 
@@ -380,24 +380,19 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
 
     (async () => {
       try {
-        let apiToken: string | null = null;
+        const apiToken = await getApiToken();
+        setLogs((prev) => prev + "[info] Hub API token acquired successfully.\n");
 
-        try {
-          apiToken = await getApiToken();
-          setLogs((prev) => prev + "[info] Hub API token acquired successfully.\n");
-        } catch (e: any) {
-          const msg = typeof e?.message === "string" ? e.message : String(e);
-          setLogs((prev) => prev + `[info] Hub API token unavailable, continuing with session auth only: ${msg}\n`);
-          apiToken = null;
-        }
-
-        const url = buildBinderBuildUrl(args, apiToken);
+        const url = buildBinderBuildUrl(args);
         setLogs((prev) => prev + `Connecting to: ${url}\n`);
 
         const res = await fetch(url, {
           method: "GET",
           signal: ac.signal,
           credentials: "include",
+          headers: {
+            Authorization: `token ${apiToken}`,
+          },
         });
 
         if (!res.ok) {
