@@ -240,7 +240,7 @@ describe("Profile form", () => {
       name: "GPU Nvidia Tesla T4 GPU",
     });
     await user.click(radio);
-    await user.click(screen.getByRole("button", {name: "Permalink"}));
+    await user.click(screen.getByRole("button", { name: "Copy Permalink" }));
 
     const clipboardText = await navigator.clipboard.readText();
 

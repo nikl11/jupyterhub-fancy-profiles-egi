@@ -1,34 +1,34 @@
+const webpack = require("webpack");
 const path = require("path");
 
 module.exports = {
-  mode: "production",
-  entry: "./src/index.tsx",
-  output: {
-    filename: "form.js",
-    path: path.resolve(__dirname, "jupyterhub_fancy_profiles/static/dist"),
-    publicPath: "/hub/fancy-profiles/static/dist/",
-  },
-  resolve: {
-    extensions: [".tsx", ".ts", ".js"],
-  },
+  entry: path.resolve(__dirname, "src", "index.tsx"),
+  devtool: "source-map",
+  mode: "development",
   module: {
     rules: [
       {
-        test: /\.(ts|tsx)$/,
+        test: /\.(ts|tsx)/,
         exclude: /node_modules/,
-        use: [
-          {
-            loader: "ts-loader",
-            options: {
-              // Critical: do not typecheck the whole repo (it contains legacy broken TS)
-              transpileOnly: true,
-              // Compile only files that are part of the webpack bundle graph
-              onlyCompileBundledFiles: true,
-            },
-          },
-        ],
+        use: "ts-loader",
+      },
+      {
+        test: /\.(js|jsx)/,
+        exclude: /node_modules/,
+        use: "babel-loader",
+      },
+      {
+        test: /\.(css)/,
+        use: ["style-loader", "css-loader"],
       },
     ],
   },
-  devtool: false,
+  output: {
+    publicPath: "/hub/fancy-profiles/static/dist/",
+    filename: "form.js",
+    path: path.resolve(__dirname, "jupyterhub_fancy_profiles/static/dist/"),
+  },
+  resolve: {
+    extensions: [".css", ".js", ".jsx", ".ts", ".tsx"],
+  },
 };

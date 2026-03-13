@@ -1,46 +1,51 @@
-import * as React from "react";
+import {
+  createContext,
+  PropsWithChildren,
+  useContext,
+  useMemo,
+  useState,
+} from "react";
+import {
+  IJupytherHubWindowObject,
+  IProfile,
+} from "./types/config";
+import { PermalinkContext } from "./context/Permalink";
 
-export type Profile = {
-  slug: string;
-  display_name: string;
-  description?: string;
-  default?: boolean;
-  kubespawner_override?: Record<string, unknown>;
-  profile_options?: Record<string, unknown>;
-};
-
-export type SpawnerFormState = {
-  profile: Profile | null;
-  setProfile: React.Dispatch<React.SetStateAction<Profile | null>>;
-  profileList: Profile[];
-};
-
-export const SpawnerFormContext = React.createContext<SpawnerFormState | null>(null);
-
-export function useSpawnerFormContext(): SpawnerFormState {
-  const ctx = React.useContext(SpawnerFormContext);
-  if (!ctx) {
-    throw new Error("useSpawnerFormContext must be used within SpawnerFormProvider");
-  }
-  return ctx;
+interface ISpawnerFormContext {
+  profileList: IProfile[];
+  profile: IProfile;
+  setProfile: React.Dispatch<React.SetStateAction<string>>;
+  // urlSearchParams: ISearchParams;
 }
 
-export function SpawnerFormProvider(props: { children: React.ReactNode; profileList: Profile[] }) {
-  const { profileList } = props;
+export const SpawnerFormContext = createContext<ISpawnerFormContext>(null);
 
+export const SpawnerFormProvider = ({ children }: PropsWithChildren) => {
+  // const urlSearchParams = new Proxy(new URLSearchParams(window.location.search), {
+  //   get: (searchParams: URLSearchParams, prop: string) =>
+  //     searchParams.get(prop),
+  // }) as unknown as ISearchParams;
+  const { permalinkValues } = useContext(PermalinkContext);
+  const profileParam = permalinkValues["profile"];
+
+  const profileList = (window as IJupytherHubWindowObject).profileList;
   const defaultProfile =
-    profileList.find((p) => p.default === true) ?? profileList[0] ?? null;
+    profileList.find((profile) => profile.default === true) || profileList[0];
+  const [selectedProfile, setProfile] = useState(profileParam || defaultProfile.slug);
 
-  const [profile, setProfile] = React.useState<Profile | null>(defaultProfile);
+  const profile = useMemo(() => {
+    return profileList.find(({ slug }) => slug === selectedProfile);
+  }, [selectedProfile]);
 
-  const value = React.useMemo<SpawnerFormState>(() => {
-    return {
-      profile,
-      setProfile,
-      profileList,
-    };
-  }, [profile, profileList]);
+  const value = {
+    profileList,
+    profile,
+    setProfile
+  };
 
-  return <SpawnerFormContext.Provider value={value}>{props.children}</SpawnerFormContext.Provider>;
-}
-
+  return (
+    <SpawnerFormContext.Provider value={value}>
+      {children}
+    </SpawnerFormContext.Provider>
+  );
+};

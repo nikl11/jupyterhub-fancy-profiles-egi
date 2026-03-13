@@ -1,46 +1,69 @@
-import * as React from "react";
+import { ChangeEventHandler, useCallback, useEffect, useState } from "react";
 
-export type RepoProvider =
-  | "github"
-  | "gitlab"
-  | "gist"
-  | "zenodo"
-  | "figshare"
-  | "hydroshare"
-  | "dataverse"
-  | "ckan"
-  | "git";
+function extractOrgAndRepo(value: string) {
+  let orgRepoString;
+  const orgRepoMatch = /^[^/]+\/[^/]+$/.exec(value);
 
-export type RepoFormState = {
-  provider: RepoProvider;
-  setProvider: (p: RepoProvider) => void;
+  if (orgRepoMatch) {
+    orgRepoString = orgRepoMatch[0];
+  } else {
+    const fullUrlMatch =
+      /^(?:https?:\/\/)?(?:www\.)?github\.com\/((?:[^/]+\/[^/]+|[^/]+\/[^/]+)?)\/?$/.exec(
+        value,
+      );
+    if (fullUrlMatch) {
+      orgRepoString = fullUrlMatch[1];
+    }
+  }
 
-  repo: string;
-  setRepo: (v: string) => void;
+  return orgRepoString;
+}
 
-  ref: string;
-  setRef: (v: string) => void;
+export default function useRepositoryField(defaultValue: string) {
+  const [value, setValue] = useState<string>(defaultValue || "");
+  const [error, setError] = useState<string>();
+  const [repoId, setRepoId] = useState<string>();
 
-  subdir: string;
-  setSubdir: (v: string) => void;
-};
+  useEffect(() => {
+    if (defaultValue) {
+      // Automatically validate the value if the defaultValue is set
+      onBlur();
+    }
+  }, [defaultValue]);
 
-export function useRepositoryField(
-  initial?: Partial<Pick<RepoFormState, "provider" | "repo" | "ref" | "subdir">>
-): RepoFormState {
-  const [provider, setProvider] = React.useState<RepoProvider>(initial?.provider ?? "github");
-  const [repo, setRepo] = React.useState<string>(initial?.repo ?? "");
-  const [ref, setRef] = React.useState<string>(initial?.ref ?? "");
-  const [subdir, setSubdir] = React.useState<string>(initial?.subdir ?? "");
+  const validate = () => {
+    setError(undefined);
+    const orgRepoString = extractOrgAndRepo(value);
+
+    if (!orgRepoString) {
+      return "Provide the repository as the format 'organization/repository'.";
+    }
+  };
+
+  const onChange: ChangeEventHandler<HTMLInputElement> = useCallback((e) => {
+    setValue(e.target.value);
+  }, []);
+
+  const onBlur = useCallback(() => {
+    setRepoId(undefined);
+    const err = validate();
+    if (err) {
+      setError(err);
+    } else {
+      const trimmedValue = value.trim();
+      setRepoId(extractOrgAndRepo(trimmedValue));
+      setValue(trimmedValue);
+    }
+  }, [value]);
 
   return {
-    provider,
-    setProvider,
-    repo,
-    setRepo,
-    ref,
-    setRef,
-    subdir,
-    setSubdir,
+    repo: value,
+    repoError: error,
+    repoId,
+    repoFieldProps: {
+      value,
+      onChange,
+      onBlur,
+    },
   };
 }
