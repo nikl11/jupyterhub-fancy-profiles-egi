@@ -10,6 +10,7 @@ import { PermalinkContext } from "./context/Permalink";
 import { ICustomOptionProps } from "./types/fields";
 
 const TOKEN_KEY = "jupytherhub-build-token"; 
+const DELETE_NONSENCE = "for git push, delete later";
 
 export type BinderBuildArgs = {
   provider: RepoProvider;
