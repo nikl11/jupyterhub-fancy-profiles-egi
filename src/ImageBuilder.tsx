@@ -9,7 +9,7 @@ import useFormCache from "./hooks/useFormCache";
 import { PermalinkContext } from "./context/Permalink";
 import { ICustomOptionProps } from "./types/fields";
 
-const TOKEN_KEY = "jupytherhub-build-token";
+const TOKEN_KEY = "jupytherhub-build-token"; 
 
 export type BinderBuildArgs = {
   provider: RepoProvider;
