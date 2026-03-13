@@ -1,5 +1,9 @@
 node_modules/
-
+jupyterhub_fancy_profiles/static/dist/node_modules*
+jupyterhub_fancy_profiles/static/dist/vendors-node*
+jupyterhub_fancy_profiles/static/dist/form.js.*
+#src/*save
+#srx/*test.tsx
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
