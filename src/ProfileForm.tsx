@@ -55,9 +55,11 @@ function ProfileCards(props: {
                   <div>
                     <div className="fw-semibold">{title}</div>
                     {desc ? (
-                      <div className="text-muted" style={{ fontSize: "0.95rem" }}>
+                      <div
+                        className="text-muted"
+                        style={{ fontSize: "0.95rem" }}
                         dangerouslySetInnerHTML={{ __html: desc }}
-                      </div>
+                      />
                     ) : null}
                   </div>
 
