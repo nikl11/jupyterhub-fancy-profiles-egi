@@ -61,6 +61,19 @@ function renamePrimarySubmitButton(label: string) {
   else (btn as HTMLButtonElement).textContent = label;
 }
 
+function setPrimarySubmitButtonDisabled(disabled: boolean) {
+  const form = document.querySelector<HTMLFormElement>("form");
+  if (!form) return;
+
+  const btn = form.querySelector<HTMLButtonElement | HTMLInputElement>(
+    `button[type="submit"], input[type="submit"]`
+  );
+  if (!btn) return;
+
+  btn.disabled = disabled;
+  btn.setAttribute("aria-disabled", disabled ? "true" : "false");
+}
+
 function getBinderProfile(list: Profile[]) {
   return (
     list.find((profile) => profile.slug === "binder") ??
@@ -185,12 +198,30 @@ function EnvironmentCards(props: {
             );
           })}
         </div>
+
+        {/* This turns the environment selector into a dropdown instead of the card list above. */}
+        {false ? (
+          <div className="mt-3">
+            <select
+              className="form-select"
+              value={selectedSlug}
+              onChange={(e) => onSelect(e.target.value)}
+              disabled={disabled}
+            >
+              {profiles.map((profile) => (
+                <option key={profile.slug} value={profile.slug}>
+                  {profile.display_name ?? profile.slug}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function HardwareCards(props: {
+function HardwareSelect(props: {
   profileSlug: string;
   option?: ProfileOption;
   selectedChoice: string;
@@ -216,42 +247,26 @@ function HardwareCards(props: {
           Select hardware resources for the repository image that Binder will build.
         </div>
 
-        <div className="d-grid gap-2">
-          {entries.map(([choiceSlug, choice]) => {
-            const active = choiceSlug === selectedChoice;
-            return (
-              <label
-                key={choiceSlug}
-                htmlFor={`hardware-${choiceSlug}`}
-                className={`border rounded p-3 ${active ? "border-primary" : ""} ${disabled ? "opacity-75" : ""}`}
-                style={{ cursor: disabled ? "not-allowed" : "pointer", userSelect: "none" }}
-              >
-                <div className="d-flex align-items-start justify-content-between gap-3">
-                  <div>
-                    <div className="fw-semibold">{choice.display_name ?? choiceSlug}</div>
-                    {choice.description ? (
-                      <div
-                        className="text-muted"
-                        style={{ fontSize: "0.95rem" }}
-                        dangerouslySetInnerHTML={{ __html: choice.description }}
-                      />
-                    ) : null}
-                  </div>
+        <select
+          className="form-select"
+          value={selectedChoice}
+          onChange={(e) => onSelect(e.target.value)}
+          disabled={disabled}
+        >
+          {entries.map(([choiceSlug, choice]) => (
+            <option key={choiceSlug} value={choiceSlug}>
+              {choice.display_name ?? choiceSlug}
+            </option>
+          ))}
+        </select>
 
-                  <input
-                    id={`hardware-${choiceSlug}`}
-                    type="radio"
-                    name="ui-binder-hardware-selector"
-                    value={choiceSlug}
-                    checked={active}
-                    onChange={() => onSelect(choiceSlug)}
-                    disabled={disabled}
-                  />
-                </div>
-              </label>
-            );
-          })}
-        </div>
+        {choices[selectedChoice]?.description ? (
+          <div
+            className="text-muted mt-2"
+            style={{ fontSize: "0.95rem" }}
+            dangerouslySetInnerHTML={{ __html: choices[selectedChoice].description ?? "" }}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -404,6 +419,12 @@ function BuildAndLaunch(props: {
 
         {buildState.error ? <div className="mt-2 alert alert-danger py-2 mb-0">{buildState.error}</div> : null}
 
+        {!buildState.imageName ? (
+          <div className="mt-2 text-muted" style={{ fontSize: "0.95rem" }}>
+            Launch stays disabled in Binder mode until the image build finishes successfully.
+          </div>
+        ) : null}
+
         {buildState.logsOpen ? (
           <div className="mt-2">
             <pre
@@ -445,9 +466,20 @@ export function App(props: Props) {
   const lockInputs = buildState.status === "building";
 
   const selectedProfileSlug = mode === "binder" && binderProfile ? binderProfile.slug : environmentSlug;
+  const binderLaunchDisabled = mode === "binder" && (!binderProfile || lockInputs || !buildState.imageName);
 
   React.useEffect(() => {
     renamePrimarySubmitButton("Launch");
+  }, []);
+
+  React.useEffect(() => {
+    setPrimarySubmitButtonDisabled(binderLaunchDisabled);
+  }, [binderLaunchDisabled]);
+
+  React.useEffect(() => {
+    return () => {
+      setPrimarySubmitButtonDisabled(false);
+    };
   }, []);
 
   React.useEffect(() => {
@@ -483,6 +515,29 @@ export function App(props: Props) {
     ensureFormField(`profile-option-${binderProfile.slug}--hardware`, binderHardware);
   }, [mode, binderProfile, binderHardware]);
 
+  const previousRepoSignature = React.useRef<string>("");
+
+  React.useEffect(() => {
+    const currentRepoSignature = JSON.stringify({
+      provider: repoState.provider,
+      repo: repoState.repo,
+      ref: repoState.ref,
+      subdir: repoState.subdir,
+    });
+
+    if (!previousRepoSignature.current) {
+      previousRepoSignature.current = currentRepoSignature;
+      return;
+    }
+
+    if (previousRepoSignature.current !== currentRepoSignature) {
+      previousRepoSignature.current = currentRepoSignature;
+      if (mode === "binder" && buildState.status !== "building") {
+        buildControls.reset();
+      }
+    }
+  }, [repoState.provider, repoState.repo, repoState.ref, repoState.subdir, mode, buildState.status, buildControls]);
+
   const handleModeChange = (nextMode: UIMode) => {
     setMode(nextMode);
     buildControls.reset();
@@ -499,6 +554,14 @@ export function App(props: Props) {
 
       {mode === "binder" && binderProfile ? (
         <>
+          <HardwareSelect
+            profileSlug={binderProfile.slug}
+            option={binderProfile.profile_options?.hardware}
+            selectedChoice={binderHardware}
+            onSelect={handleBinderHardwareChange}
+            disabled={lockInputs}
+          />
+
           <RepositoryForm repoState={repoState} disabled={lockInputs} />
 
           <BuildAndLaunch
@@ -511,14 +574,6 @@ export function App(props: Props) {
               subdir: repoState.subdir,
             }}
             lockInputs={lockInputs}
-          />
-
-          <HardwareCards
-            profileSlug={binderProfile.slug}
-            option={binderProfile.profile_options?.hardware}
-            selectedChoice={binderHardware}
-            onSelect={handleBinderHardwareChange}
-            disabled={lockInputs}
           />
         </>
       ) : (
