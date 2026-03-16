@@ -242,7 +242,7 @@ function HardwareSelect(props: {
   return (
     <div className="card mb-3" aria-disabled={disabled}>
       <div className="card-body">
-        <h5 className="mb-1">Environment</h5>
+        <h4 className="mb-1">Environment</h4>
         <div className="text-muted mb-3" style={{ fontSize: "0.95rem" }}>
           Select hardware resources for the repository image that Binder will build.
         </div>
@@ -304,7 +304,7 @@ function RepositoryForm(props: {
   return (
     <div className="card mb-3" aria-disabled={disabled}>
       <div className="card-body">
-        <h5 className="mb-2">Repository</h5>
+        <h4 className="mb-2">Repository</h4>
 
         <div className="row g-2">
           <div className="col-12 col-md-3">
@@ -391,7 +391,7 @@ function BuildAndLaunch(props: {
   return (
     <div className="card mb-3">
       <div className="card-body">
-        <h5 className="mb-2">Build &amp; launch</h5>
+        <h4 className="mb-2">Build &amp; launch</h4>
 
         <div className="d-flex gap-2 align-items-center flex-wrap">
           <button
