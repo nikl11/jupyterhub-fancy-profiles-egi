@@ -275,8 +275,10 @@ function HardwareSelect(props: {
 function RepositoryForm(props: {
   repoState: ReturnType<typeof useRepositoryField>;
   disabled: boolean;
+  validationError: string;
+  onRepositoryInputChange: () => void;
 }) {
-  const { repoState, disabled } = props;
+  const { repoState, disabled, validationError, onRepositoryInputChange } = props;
 
   const providers: Array<{ id: RepoProvider; label: string; hint: string }> = [
     { id: "github", label: "GitHub", hint: "owner/repo or https://github.com/owner/repo" },
@@ -312,7 +314,10 @@ function RepositoryForm(props: {
             <select
               className="form-select"
               value={repoState.provider}
-              onChange={(e) => repoState.setProvider(e.target.value as RepoProvider)}
+              onChange={(e) => {
+                repoState.setProvider(e.target.value as RepoProvider);
+                onRepositoryInputChange();
+              }}
               disabled={disabled}
             >
               {providers.map((provider) => (
@@ -326,14 +331,18 @@ function RepositoryForm(props: {
           <div className="col-12 col-md-6">
             <label className="form-label">Repository</label>
             <input
-              className="form-control"
+              className={`form-control ${validationError ? "is-invalid" : ""}`}
               value={repoState.repo}
-              onChange={(e) => repoState.setRepo(e.target.value)}
+              onChange={(e) => {
+                repoState.setRepo(e.target.value);
+                onRepositoryInputChange();
+              }}
               placeholder={providerMeta.hint}
               autoComplete="off"
               spellCheck={false}
               disabled={disabled}
             />
+            {validationError ? <div className="invalid-feedback">{validationError}</div> : null}
             <div className="form-text">
               Example: <code>{providerMeta.hint}</code>
             </div>
@@ -344,7 +353,10 @@ function RepositoryForm(props: {
             <input
               className="form-control"
               value={repoState.ref}
-              onChange={(e) => repoState.setRef(e.target.value)}
+              onChange={(e) => {
+                repoState.setRef(e.target.value);
+                onRepositoryInputChange();
+              }}
               placeholder="branch / tag / commit"
               autoComplete="off"
               spellCheck={false}
@@ -360,7 +372,10 @@ function RepositoryForm(props: {
             <input
               className="form-control"
               value={repoState.subdir}
-              onChange={(e) => repoState.setSubdir(e.target.value)}
+              onChange={(e) => {
+                repoState.setSubdir(e.target.value);
+                onRepositoryInputChange();
+              }}
               placeholder="path/inside/repo"
               autoComplete="off"
               spellCheck={false}
@@ -378,8 +393,10 @@ function BuildAndLaunch(props: {
   buildControls: ReturnType<typeof useBinderBuild>[1];
   repo: { provider: RepoProvider; repo: string; ref: string; subdir: string };
   lockInputs: boolean;
+  validationError: string;
+  onValidationError: (message: string) => void;
 }) {
-  const { buildState, buildControls, repo, lockInputs } = props;
+  const { buildState, buildControls, repo, lockInputs, validationError, onValidationError } = props;
   const isBuilding = buildState.status === "building";
   const logRef = React.useRef<HTMLPreElement | null>(null);
 
@@ -387,6 +404,21 @@ function BuildAndLaunch(props: {
     if (!buildState.logsOpen || !logRef.current) return;
     logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [buildState.logs, buildState.logsOpen]);
+
+  const handleBuildClick = () => {
+    if (!repo.repo.trim()) {
+      onValidationError("Repository is required before building the image.");
+      return;
+    }
+
+    onValidationError("");
+    buildControls.startBuild({
+      provider: repo.provider,
+      repo: repo.repo,
+      ref: repo.ref,
+      subdir: repo.subdir,
+    });
+  };
 
   return (
     <div className="card mb-3">
@@ -397,14 +429,7 @@ function BuildAndLaunch(props: {
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() =>
-              buildControls.startBuild({
-                provider: repo.provider,
-                repo: repo.repo,
-                ref: repo.ref,
-                subdir: repo.subdir,
-              })
-            }
+            onClick={handleBuildClick}
             disabled={lockInputs || isBuilding}
           >
             {isBuilding ? "Building..." : "Build image"}
@@ -417,7 +442,10 @@ function BuildAndLaunch(props: {
           {buildState.imageName ? <span className="badge text-bg-success">image ready</span> : null}
         </div>
 
-        {buildState.error ? <div className="mt-2 alert alert-danger py-2 mb-0">{buildState.error}</div> : null}
+        {validationError ? <div className="mt-2 alert alert-danger py-2 mb-0">{validationError}</div> : null}
+        {!validationError && buildState.error ? (
+          <div className="mt-2 alert alert-danger py-2 mb-0">{buildState.error}</div>
+        ) : null}
 
         {!buildState.imageName ? (
           <div className="mt-2 text-muted" style={{ fontSize: "0.95rem" }}>
@@ -460,6 +488,7 @@ export function App(props: Props) {
   const [binderHardware, setBinderHardware] = React.useState<string>(
     getDefaultChoiceSlug(binderProfile?.profile_options?.hardware)
   );
+  const [binderValidationError, setBinderValidationError] = React.useState<string>("");
 
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
@@ -540,12 +569,20 @@ export function App(props: Props) {
 
   const handleModeChange = (nextMode: UIMode) => {
     setMode(nextMode);
+    setBinderValidationError("");
     buildControls.reset();
   };
 
   const handleBinderHardwareChange = (choiceSlug: string) => {
     setBinderHardware(choiceSlug);
+    setBinderValidationError("");
     buildControls.reset();
+  };
+
+  const handleRepositoryInputChange = () => {
+    if (binderValidationError) {
+      setBinderValidationError("");
+    }
   };
 
   return (
@@ -562,7 +599,12 @@ export function App(props: Props) {
             disabled={lockInputs}
           />
 
-          <RepositoryForm repoState={repoState} disabled={lockInputs} />
+          <RepositoryForm
+            repoState={repoState}
+            disabled={lockInputs}
+            validationError={binderValidationError}
+            onRepositoryInputChange={handleRepositoryInputChange}
+          />
 
           <BuildAndLaunch
             buildState={buildState}
@@ -574,6 +616,8 @@ export function App(props: Props) {
               subdir: repoState.subdir,
             }}
             lockInputs={lockInputs}
+            validationError={binderValidationError}
+            onValidationError={setBinderValidationError}
           />
         </>
       ) : (
