@@ -296,10 +296,10 @@ function RepositoryForm(props: {
       <div className="card-body">
         <h4 className="mb-2">Repository</h4>
 
-        <div className="row g-2">
-          <div className="col-12">
+        <div className="row g-2 align-items-end">
+          <div className="col-12 col-md-12">
             <label className="form-label">Repository</label>
-            <div className={`binder-repo-input-group ${validationError ? "binder-repo-input-group-invalid" : ""}`}>
+            <div className="binder-repository-input-group">
               <select
                 className="form-select binder-provider-select"
                 value={repoState.provider}
@@ -308,7 +308,7 @@ function RepositoryForm(props: {
                   onRepositoryInputChange();
                 }}
                 disabled={disabled}
-                aria-label="Provider"
+                aria-label="Repository provider"
               >
                 {providers.map((provider) => (
                   <option key={provider.id} value={provider.id}>
@@ -328,7 +328,6 @@ function RepositoryForm(props: {
                 autoComplete="off"
                 spellCheck={false}
                 disabled={disabled}
-                aria-label="Repository"
               />
             </div>
             {validationError ? <div className="invalid-feedback d-block">{validationError}</div> : null}
