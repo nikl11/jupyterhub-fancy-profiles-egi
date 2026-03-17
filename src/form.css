@@ -9,6 +9,12 @@
   width: 100%;
 }
 
+.fp-container {
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+
 .fp-header {
   display: flex;
   align-items: flex-start;

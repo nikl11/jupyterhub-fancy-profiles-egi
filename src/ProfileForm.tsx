@@ -297,7 +297,7 @@ function RepositoryForm(props: {
         <h4 className="mb-2">Repository</h4>
 
         <div className="row g-2">
-          <div className="col-12 col-md-3">
+          <div className="col-12 col-md-2">
             <label className="form-label">Provider</label>
             <select
               className="form-select binder-provider-select"
@@ -316,7 +316,7 @@ function RepositoryForm(props: {
             </select>
           </div>
 
-          <div className="col-12 col-md-9">
+          <div className="col-12 col-md-10">
             <label className="form-label">Repository</label>
             <input
               className={`form-control ${validationError ? "is-invalid" : ""}`}
@@ -338,7 +338,7 @@ function RepositoryForm(props: {
         </div>
 
         <div className="row g-2 mt-2">
-          <div className="col-12 col-md-6">
+          <div className="col-12 col-md-5">
             <label className="form-label">Ref (branch, tag, or commit)</label>
             <input
               className="form-control"
@@ -355,7 +355,7 @@ function RepositoryForm(props: {
             <div className="form-text">Optional. HEAD is used by default.</div>
           </div>
 
-          <div className="col-12 col-md-6">
+          <div className="col-12 col-md-7">
             <label className="form-label">Subdirectory</label>
             <input
               className="form-control"
