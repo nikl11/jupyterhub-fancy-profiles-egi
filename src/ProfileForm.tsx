@@ -298,17 +298,17 @@ function RepositoryForm(props: {
 
         <div className="row g-2">
           <div className="col-12">
-            <label className="form-label">Provider and repository</label>
-            <div className={`fp-binder-repository-input ${disabled ? "opacity-75" : ""}`}>
+            <label className="form-label">Repository</label>
+            <div className={`binder-repo-input-group ${validationError ? "binder-repo-input-group-invalid" : ""}`}>
               <select
-                className="form-select fp-binder-provider-select"
+                className="form-select binder-provider-select"
                 value={repoState.provider}
                 onChange={(e) => {
                   repoState.setProvider(e.target.value as RepoProvider);
                   onRepositoryInputChange();
                 }}
                 disabled={disabled}
-                aria-label="Repository provider"
+                aria-label="Provider"
               >
                 {providers.map((provider) => (
                   <option key={provider.id} value={provider.id}>
@@ -318,7 +318,7 @@ function RepositoryForm(props: {
               </select>
 
               <input
-                className={`form-control fp-binder-repository-field ${validationError ? "is-invalid" : ""}`}
+                className={`form-control binder-repository-input ${validationError ? "is-invalid" : ""}`}
                 value={repoState.repo}
                 onChange={(e) => {
                   repoState.setRepo(e.target.value);
@@ -331,7 +331,6 @@ function RepositoryForm(props: {
                 aria-label="Repository"
               />
             </div>
-
             {validationError ? <div className="invalid-feedback d-block">{validationError}</div> : null}
             <div className="form-text">
               Example: <code>{providerMeta.hint}</code>
@@ -483,9 +482,7 @@ export function App(props: Props) {
   const [environmentSlug, setEnvironmentSlug] = React.useState<string>(defaultEnvironmentSlug);
   const [binderProfileSlug, setBinderProfileSlug] = React.useState<string>(defaultBinderSlug);
   const [binderValidationError, setBinderValidationError] = React.useState<string>("");
-  const [contentMaxWidth, setContentMaxWidth] = React.useState<number | null>(null);
 
-  const contentWidthProbeRef = React.useRef<HTMLDivElement | null>(null);
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
   const lockInputs = buildState.status === "building";
@@ -578,45 +575,8 @@ export function App(props: Props) {
     }
   };
 
-  React.useLayoutEffect(() => {
-    const probeElement = contentWidthProbeRef.current;
-    if (!probeElement) return;
-
-    const updateContentWidth = () => {
-      const titleElements = Array.from(probeElement.querySelectorAll<HTMLElement>(".fp-width-probe-title"));
-      const widestTitle = titleElements.reduce((maxWidth, element) => {
-        return Math.max(maxWidth, Math.ceil(element.getBoundingClientRect().width));
-      }, 0);
-
-      if (widestTitle > 0) {
-        // Account for card padding, borders, the radio control, and the gap between columns.
-        setContentMaxWidth(widestTitle + 112);
-      }
-    };
-
-    updateContentWidth();
-
-    const resizeObserver = new ResizeObserver(() => {
-      updateContentWidth();
-    });
-
-    Array.from(probeElement.children).forEach((child) => resizeObserver.observe(child));
-    window.addEventListener("resize", updateContentWidth);
-
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener("resize", updateContentWidth);
-    };
-  }, [environmentProfiles]);
-
   return (
-    <div
-      className="fp-content-width-wrapper"
-      style={{
-        width: contentMaxWidth ? `min(100%, ${contentMaxWidth}px)` : undefined,
-        maxWidth: contentMaxWidth ? `${contentMaxWidth}px` : undefined,
-      }}
-    >
+    <div>
       <ModeToggle
         mode={mode}
         onChange={handleModeChange}
@@ -664,14 +624,6 @@ export function App(props: Props) {
           disabled={lockInputs}
         />
       )}
-
-      <div ref={contentWidthProbeRef} className="fp-width-probe" aria-hidden="true">
-        {environmentProfiles.map((profile) => (
-          <div key={profile.slug} className="fp-width-probe-card">
-            <span className="fp-width-probe-title">{profile.display_name ?? profile.slug}</span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
