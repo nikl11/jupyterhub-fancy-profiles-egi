@@ -297,47 +297,51 @@ function RepositoryForm(props: {
         <h4 className="mb-2">Repository</h4>
 
         <div className="row g-2">
-          <div className="col-12 col-md-3">
-            <label className="form-label">Provider</label>
-            <select
-              className="form-select"
-              value={repoState.provider}
-              onChange={(e) => {
-                repoState.setProvider(e.target.value as RepoProvider);
-                onRepositoryInputChange();
-              }}
-              disabled={disabled}
-            >
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="col-12">
+            <label className="form-label">Provider and repository</label>
+            <div className={`fp-binder-repository-input ${disabled ? "opacity-75" : ""}`}>
+              <select
+                className="form-select fp-binder-provider-select"
+                value={repoState.provider}
+                onChange={(e) => {
+                  repoState.setProvider(e.target.value as RepoProvider);
+                  onRepositoryInputChange();
+                }}
+                disabled={disabled}
+                aria-label="Repository provider"
+              >
+                {providers.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.label}
+                  </option>
+                ))}
+              </select>
 
-          <div className="col-12 col-md-6">
-            <label className="form-label">Repository</label>
-            <input
-              className={`form-control ${validationError ? "is-invalid" : ""}`}
-              value={repoState.repo}
-              onChange={(e) => {
-                repoState.setRepo(e.target.value);
-                onRepositoryInputChange();
-              }}
-              placeholder={providerMeta.hint}
-              autoComplete="off"
-              spellCheck={false}
-              disabled={disabled}
-            />
-            {validationError ? <div className="invalid-feedback">{validationError}</div> : null}
+              <input
+                className={`form-control fp-binder-repository-field ${validationError ? "is-invalid" : ""}`}
+                value={repoState.repo}
+                onChange={(e) => {
+                  repoState.setRepo(e.target.value);
+                  onRepositoryInputChange();
+                }}
+                placeholder={providerMeta.hint}
+                autoComplete="off"
+                spellCheck={false}
+                disabled={disabled}
+                aria-label="Repository"
+              />
+            </div>
+
+            {validationError ? <div className="invalid-feedback d-block">{validationError}</div> : null}
             <div className="form-text">
               Example: <code>{providerMeta.hint}</code>
             </div>
           </div>
+        </div>
 
-          <div className="col-12 col-md-3">
-            <label className="form-label">Ref</label>
+        <div className="row g-2 mt-2">
+          <div className="col-12 col-md-6">
+            <label className="form-label">Ref (branch, tag, or commit)</label>
             <input
               className="form-control"
               value={repoState.ref}
@@ -345,18 +349,16 @@ function RepositoryForm(props: {
                 repoState.setRef(e.target.value);
                 onRepositoryInputChange();
               }}
-              placeholder="branch / tag / commit"
+              placeholder="HEAD"
               autoComplete="off"
               spellCheck={false}
               disabled={disabled || refNotApplicable}
             />
-            <div className="form-text">Optional (defaults to HEAD).</div>
+            <div className="form-text">Optional. HEAD is used by default.</div>
           </div>
-        </div>
 
-        <div className="row g-2 mt-2">
           <div className="col-12 col-md-6">
-            <label className="form-label">Subdirectory (optional)</label>
+            <label className="form-label">Subdirectory</label>
             <input
               className="form-control"
               value={repoState.subdir}
@@ -369,6 +371,7 @@ function RepositoryForm(props: {
               spellCheck={false}
               disabled={disabled}
             />
+            <div className="form-text">Optional.</div>
           </div>
         </div>
       </div>
@@ -480,7 +483,9 @@ export function App(props: Props) {
   const [environmentSlug, setEnvironmentSlug] = React.useState<string>(defaultEnvironmentSlug);
   const [binderProfileSlug, setBinderProfileSlug] = React.useState<string>(defaultBinderSlug);
   const [binderValidationError, setBinderValidationError] = React.useState<string>("");
+  const [contentMaxWidth, setContentMaxWidth] = React.useState<number | null>(null);
 
+  const contentWidthProbeRef = React.useRef<HTMLDivElement | null>(null);
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
   const lockInputs = buildState.status === "building";
@@ -573,8 +578,45 @@ export function App(props: Props) {
     }
   };
 
+  React.useLayoutEffect(() => {
+    const probeElement = contentWidthProbeRef.current;
+    if (!probeElement) return;
+
+    const updateContentWidth = () => {
+      const titleElements = Array.from(probeElement.querySelectorAll<HTMLElement>(".fp-width-probe-title"));
+      const widestTitle = titleElements.reduce((maxWidth, element) => {
+        return Math.max(maxWidth, Math.ceil(element.getBoundingClientRect().width));
+      }, 0);
+
+      if (widestTitle > 0) {
+        // Account for card padding, borders, the radio control, and the gap between columns.
+        setContentMaxWidth(widestTitle + 112);
+      }
+    };
+
+    updateContentWidth();
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateContentWidth();
+    });
+
+    Array.from(probeElement.children).forEach((child) => resizeObserver.observe(child));
+    window.addEventListener("resize", updateContentWidth);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateContentWidth);
+    };
+  }, [environmentProfiles]);
+
   return (
-    <div>
+    <div
+      className="fp-content-width-wrapper"
+      style={{
+        width: contentMaxWidth ? `min(100%, ${contentMaxWidth}px)` : undefined,
+        maxWidth: contentMaxWidth ? `${contentMaxWidth}px` : undefined,
+      }}
+    >
       <ModeToggle
         mode={mode}
         onChange={handleModeChange}
@@ -622,6 +664,14 @@ export function App(props: Props) {
           disabled={lockInputs}
         />
       )}
+
+      <div ref={contentWidthProbeRef} className="fp-width-probe" aria-hidden="true">
+        {environmentProfiles.map((profile) => (
+          <div key={profile.slug} className="fp-width-probe-card">
+            <span className="fp-width-probe-title">{profile.display_name ?? profile.slug}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

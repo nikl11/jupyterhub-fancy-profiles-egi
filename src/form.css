@@ -243,3 +243,84 @@
   background-color: rgba(255, 255, 255, 0.06);
 }
 
+
+/* Binder repository input styled as a single combined control, similar to mybinder.org */
+.fp-binder-repository-input {
+  display: flex;
+  align-items: stretch;
+}
+
+.fp-binder-provider-select {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 9.5rem;
+  max-width: 13rem;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  background-color: #495057;
+  color: #fff;
+  border-color: #495057;
+}
+
+.fp-binder-provider-select:focus {
+  background-color: #495057;
+  color: #fff;
+  border-color: #495057;
+  box-shadow: none;
+}
+
+.fp-binder-provider-select option {
+  color: #212529;
+}
+
+.fp-binder-repository-field {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  margin-left: -1px;
+}
+
+.fp-content-width-wrapper {
+  margin-right: auto;
+}
+
+.fp-width-probe {
+  position: absolute;
+  left: -99999px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.fp-width-probe-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.75rem 0.75rem 1rem;
+  border: 1px solid transparent;
+}
+
+.fp-width-probe-title {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+@media (max-width: 767.98px) {
+  .fp-binder-repository-input {
+    flex-direction: column;
+  }
+
+  .fp-binder-provider-select {
+    width: 100%;
+    max-width: none;
+    border-top-right-radius: var(--bs-border-radius);
+    border-bottom-left-radius: 0;
+  }
+
+  .fp-binder-repository-field {
+    margin-left: 0;
+    margin-top: -1px;
+    border-top-right-radius: 0;
+    border-bottom-left-radius: var(--bs-border-radius);
+  }
+}
