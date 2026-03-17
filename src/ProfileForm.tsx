@@ -297,7 +297,7 @@ function RepositoryForm(props: {
         <h4 className="mb-2">Repository</h4>
 
         <div className="row g-2">
-          <div className="col-12 col-md-2">
+          <div className="col-12 col-md-3">
             <label className="form-label">Provider</label>
             <select
               className="form-select binder-provider-select"
@@ -316,7 +316,7 @@ function RepositoryForm(props: {
             </select>
           </div>
 
-          <div className="col-12 col-md-10">
+          <div className="col-12 col-md-9">
             <label className="form-label">Repository</label>
             <input
               className={`form-control ${validationError ? "is-invalid" : ""}`}
