@@ -245,59 +245,29 @@
 
 
 
-.binder-repository-input-group {
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-}
-
+/* Binder repository form tweaks */
 .binder-provider-select {
-  flex: 0 0 11rem;
-  max-width: 11rem;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
   background-color: #495057;
-  color: #fff;
+  color: #ffffff;
   border-color: #495057;
-  background-image: none;
 }
 
-.binder-provider-select:focus,
 .binder-provider-select:hover,
-.binder-provider-select:disabled {
+.binder-provider-select:focus,
+.binder-provider-select:active {
   background-color: #495057;
-  color: #fff;
+  color: #ffffff;
   border-color: #495057;
+  box-shadow: none;
+}
+
+.binder-provider-select:disabled {
+  background-color: #6c757d;
+  color: #ffffff;
+  border-color: #6c757d;
 }
 
 .binder-provider-select option {
   background-color: #495057;
-  color: #fff;
-}
-
-.binder-repository-input {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  margin-left: -1px;
-}
-
-@media (max-width: 767.98px) {
-  .binder-repository-input-group {
-    flex-direction: column;
-  }
-
-  .binder-provider-select {
-    flex-basis: auto;
-    max-width: none;
-    border-top-right-radius: var(--bs-border-radius);
-    border-bottom-left-radius: 0;
-  }
-
-  .binder-repository-input {
-    margin-left: 0;
-    margin-top: -1px;
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
-    border-bottom-left-radius: var(--bs-border-radius);
-  }
+  color: #ffffff;
 }

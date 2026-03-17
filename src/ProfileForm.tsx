@@ -296,41 +296,41 @@ function RepositoryForm(props: {
       <div className="card-body">
         <h4 className="mb-2">Repository</h4>
 
-        <div className="row g-2 align-items-end">
-          <div className="col-12 col-md-12">
-            <label className="form-label">Repository</label>
-            <div className="binder-repository-input-group">
-              <select
-                className="form-select binder-provider-select"
-                value={repoState.provider}
-                onChange={(e) => {
-                  repoState.setProvider(e.target.value as RepoProvider);
-                  onRepositoryInputChange();
-                }}
-                disabled={disabled}
-                aria-label="Repository provider"
-              >
-                {providers.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.label}
-                  </option>
-                ))}
-              </select>
+        <div className="row g-2">
+          <div className="col-12 col-md-3">
+            <label className="form-label">Provider</label>
+            <select
+              className="form-select binder-provider-select"
+              value={repoState.provider}
+              onChange={(e) => {
+                repoState.setProvider(e.target.value as RepoProvider);
+                onRepositoryInputChange();
+              }}
+              disabled={disabled}
+            >
+              {providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-              <input
-                className={`form-control binder-repository-input ${validationError ? "is-invalid" : ""}`}
-                value={repoState.repo}
-                onChange={(e) => {
-                  repoState.setRepo(e.target.value);
-                  onRepositoryInputChange();
-                }}
-                placeholder={providerMeta.hint}
-                autoComplete="off"
-                spellCheck={false}
-                disabled={disabled}
-              />
-            </div>
-            {validationError ? <div className="invalid-feedback d-block">{validationError}</div> : null}
+          <div className="col-12 col-md-9">
+            <label className="form-label">Repository</label>
+            <input
+              className={`form-control ${validationError ? "is-invalid" : ""}`}
+              value={repoState.repo}
+              onChange={(e) => {
+                repoState.setRepo(e.target.value);
+                onRepositoryInputChange();
+              }}
+              placeholder={providerMeta.hint}
+              autoComplete="off"
+              spellCheck={false}
+              disabled={disabled}
+            />
+            {validationError ? <div className="invalid-feedback">{validationError}</div> : null}
             <div className="form-text">
               Example: <code>{providerMeta.hint}</code>
             </div>
