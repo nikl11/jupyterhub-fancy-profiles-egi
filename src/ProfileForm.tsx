@@ -12,6 +12,9 @@ type ProfileChoice = {
 type ProfileOption = {
   display_name?: string;
   choices?: Record<string, ProfileChoice>;
+  dynamic_image_building?: {
+    enabled?: boolean;
+  };
 };
 
 type Profile = {
@@ -74,25 +77,16 @@ function setPrimarySubmitButtonDisabled(disabled: boolean) {
   btn.setAttribute("aria-disabled", disabled ? "true" : "false");
 }
 
-function getBinderProfile(list: Profile[]) {
-  return (
-    list.find((profile) => profile.slug === "binder") ??
-    list.find((profile) => (profile.display_name ?? "").toLowerCase().includes("binder")) ??
-    null
-  );
-}
-
 function isBinderProfile(profile: Profile) {
-  return profile.slug === "binder" || (profile.display_name ?? "").toLowerCase().includes("binder");
+  const slug = (profile.slug ?? "").toLowerCase();
+  const displayName = (profile.display_name ?? "").toLowerCase();
+  const hasDynamicImageBuilding = Boolean(profile.profile_options?.image?.dynamic_image_building?.enabled);
+
+  return hasDynamicImageBuilding || slug.startsWith("binder") || displayName.includes("binder");
 }
 
-function getDefaultChoiceSlug(option?: ProfileOption) {
-  const choices = option?.choices ?? {};
-  const explicitDefault = Object.entries(choices).find(([, choice]) => choice.default);
-  if (explicitDefault) return explicitDefault[0];
-
-  const first = Object.keys(choices)[0];
-  return first ?? "";
+function getDefaultBinderProfileSlug(profiles: Profile[]) {
+  return profiles.find((profile) => profile.default)?.slug ?? profiles[0]?.slug ?? "";
 }
 
 function ModeToggle(props: {
@@ -221,50 +215,44 @@ function EnvironmentCards(props: {
   );
 }
 
-function HardwareSelect(props: {
-  profileSlug: string;
-  option?: ProfileOption;
-  selectedChoice: string;
-  onSelect: (choice: string) => void;
+function BinderProfileSelect(props: {
+  profiles: Profile[];
+  selectedSlug: string;
+  onSelect: (slug: string) => void;
   disabled: boolean;
 }) {
-  const { profileSlug, option, selectedChoice, onSelect, disabled } = props;
-  const choices = option?.choices ?? {};
-  const entries = Object.entries(choices);
+  const { profiles, selectedSlug, onSelect, disabled } = props;
+  const selectedProfile = profiles.find((profile) => profile.slug === selectedSlug);
 
-  React.useEffect(() => {
-    if (!selectedChoice || !choices[selectedChoice]) return;
-    ensureFormField(`profile-option-${profileSlug}--hardware`, selectedChoice);
-  }, [profileSlug, selectedChoice, choices]);
-
-  if (entries.length === 0) return null;
+  if (profiles.length === 0) return null;
 
   return (
     <div className="card mb-3" aria-disabled={disabled}>
       <div className="card-body">
         <h4 className="mb-1">Environment</h4>
         <div className="text-muted mb-3" style={{ fontSize: "0.95rem" }}>
-          Select hardware resources for the repository image that Binder will build.
+          Select one of the available Binder launch configurations. These entries come directly from the static profile
+          list in binder.yaml.
         </div>
 
         <select
           className="form-select"
-          value={selectedChoice}
+          value={selectedSlug}
           onChange={(e) => onSelect(e.target.value)}
           disabled={disabled}
         >
-          {entries.map(([choiceSlug, choice]) => (
-            <option key={choiceSlug} value={choiceSlug}>
-              {choice.display_name ?? choiceSlug}
+          {profiles.map((profile) => (
+            <option key={profile.slug} value={profile.slug}>
+              {profile.display_name ?? profile.slug}
             </option>
           ))}
         </select>
 
-        {choices[selectedChoice]?.description ? (
+        {selectedProfile?.description ? (
           <div
             className="text-muted mt-2"
             style={{ fontSize: "0.95rem" }}
-            dangerouslySetInnerHTML={{ __html: choices[selectedChoice].description ?? "" }}
+            dangerouslySetInnerHTML={{ __html: selectedProfile.description }}
           />
         ) : null}
       </div>
@@ -460,7 +448,7 @@ function BuildAndLaunch(props: {
               className="p-2 border rounded bg-body-tertiary mb-0"
               style={{ maxHeight: 260, overflow: "auto", whiteSpace: "pre-wrap" }}
             >
-{buildState.logs || "Logs will appear here once build starts."}
+              {buildState.logs || "Logs will appear here once build starts."}
             </pre>
 
             {buildState.imageName ? (
@@ -477,25 +465,32 @@ function BuildAndLaunch(props: {
 
 export function App(props: Props) {
   const list = props.profileList ?? [];
-  const binderProfile = React.useMemo(() => getBinderProfile(list), [list]);
+  const binderProfiles = React.useMemo(() => list.filter((profile) => isBinderProfile(profile)), [list]);
   const environmentProfiles = React.useMemo(() => list.filter((profile) => !isBinderProfile(profile)), [list]);
 
   const defaultEnvironmentSlug =
-    environmentProfiles.find((profile) => profile.default)?.slug ?? environmentProfiles[0]?.slug ?? list[0]?.slug ?? "default";
+    environmentProfiles.find((profile) => profile.default)?.slug ??
+    environmentProfiles[0]?.slug ??
+    list[0]?.slug ??
+    "default";
 
-  const [mode, setMode] = React.useState<UIMode>(binderProfile ? "binder" : "environment");
+  const defaultBinderSlug = React.useMemo(() => getDefaultBinderProfileSlug(binderProfiles), [binderProfiles]);
+
+  const [mode, setMode] = React.useState<UIMode>(binderProfiles.length > 0 ? "binder" : "environment");
   const [environmentSlug, setEnvironmentSlug] = React.useState<string>(defaultEnvironmentSlug);
-  const [binderHardware, setBinderHardware] = React.useState<string>(
-    getDefaultChoiceSlug(binderProfile?.profile_options?.hardware)
-  );
+  const [binderProfileSlug, setBinderProfileSlug] = React.useState<string>(defaultBinderSlug);
   const [binderValidationError, setBinderValidationError] = React.useState<string>("");
 
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
   const lockInputs = buildState.status === "building";
 
-  const selectedProfileSlug = mode === "binder" && binderProfile ? binderProfile.slug : environmentSlug;
-  const binderLaunchDisabled = mode === "binder" && (!binderProfile || lockInputs || !buildState.imageName);
+  const selectedProfileSlug = mode === "binder" && binderProfileSlug ? binderProfileSlug : environmentSlug;
+  const selectedBinderProfile = React.useMemo(
+    () => binderProfiles.find((profile) => profile.slug === binderProfileSlug) ?? null,
+    [binderProfiles, binderProfileSlug]
+  );
+  const binderLaunchDisabled = mode === "binder" && (!selectedBinderProfile || lockInputs || !buildState.imageName);
 
   React.useEffect(() => {
     renamePrimarySubmitButton("Launch");
@@ -518,31 +513,24 @@ export function App(props: Props) {
   }, [environmentProfiles, environmentSlug, defaultEnvironmentSlug]);
 
   React.useEffect(() => {
-    const defaultHardware = getDefaultChoiceSlug(binderProfile?.profile_options?.hardware);
-    if (!binderProfile) return;
-    if (!binderHardware || !(binderProfile.profile_options?.hardware?.choices ?? {})[binderHardware]) {
-      setBinderHardware(defaultHardware);
+    if (!binderProfiles.some((profile) => profile.slug === binderProfileSlug)) {
+      setBinderProfileSlug(defaultBinderSlug);
     }
-  }, [binderProfile, binderHardware]);
+  }, [binderProfiles, binderProfileSlug, defaultBinderSlug]);
 
   React.useEffect(() => {
     ensureFormField("profile", selectedProfileSlug);
   }, [selectedProfileSlug]);
 
   React.useEffect(() => {
-    if (mode !== "binder" || !binderProfile || !buildState.imageName) return;
+    if (mode !== "binder" || !selectedBinderProfile || !buildState.imageName) return;
 
-    const imageChoiceField = `profile-option-${binderProfile.slug}--image`;
-    const imageUnlistedField = `profile-option-${binderProfile.slug}--image--unlisted-choice`;
+    const imageChoiceField = `profile-option-${selectedBinderProfile.slug}--image`;
+    const imageUnlistedField = `profile-option-${selectedBinderProfile.slug}--image--unlisted-choice`;
 
     ensureFormField(imageChoiceField, "unlisted_choice");
     ensureFormField(imageUnlistedField, buildState.imageName);
-  }, [mode, binderProfile, buildState.imageName]);
-
-  React.useEffect(() => {
-    if (mode !== "binder" || !binderProfile || !binderHardware) return;
-    ensureFormField(`profile-option-${binderProfile.slug}--hardware`, binderHardware);
-  }, [mode, binderProfile, binderHardware]);
+  }, [mode, selectedBinderProfile, buildState.imageName]);
 
   const previousRepoSignature = React.useRef<string>("");
 
@@ -573,8 +561,8 @@ export function App(props: Props) {
     buildControls.reset();
   };
 
-  const handleBinderHardwareChange = (choiceSlug: string) => {
-    setBinderHardware(choiceSlug);
+  const handleBinderProfileChange = (nextProfileSlug: string) => {
+    setBinderProfileSlug(nextProfileSlug);
     setBinderValidationError("");
     buildControls.reset();
   };
@@ -587,15 +575,19 @@ export function App(props: Props) {
 
   return (
     <div>
-      <ModeToggle mode={mode} onChange={handleModeChange} hasBinder={Boolean(binderProfile)} disabled={lockInputs} />
+      <ModeToggle
+        mode={mode}
+        onChange={handleModeChange}
+        hasBinder={binderProfiles.length > 0}
+        disabled={lockInputs}
+      />
 
-      {mode === "binder" && binderProfile ? (
+      {mode === "binder" && binderProfiles.length > 0 ? (
         <>
-          <HardwareSelect
-            profileSlug={binderProfile.slug}
-            option={binderProfile.profile_options?.hardware}
-            selectedChoice={binderHardware}
-            onSelect={handleBinderHardwareChange}
+          <BinderProfileSelect
+            profiles={binderProfiles}
+            selectedSlug={binderProfileSlug}
+            onSelect={handleBinderProfileChange}
             disabled={lockInputs}
           />
 
