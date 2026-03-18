@@ -149,7 +149,7 @@ function EnvironmentCards(props: {
   const { title, subtitle, profiles, selectedSlug, onSelect, disabled } = props;
 
   return (
-    <div className="card mb-3" aria-disabled={disabled}>
+    <div className="card mb-0" aria-disabled={disabled}>
       <div className="card-body">
         <h2 className="h4 mb-1">{title}</h2>
         <div className="text-muted mb-3" style={{ fontSize: "0.95rem" }}>
@@ -270,14 +270,15 @@ function RepositoryForm(props: {
 
   const providers: Array<{ id: RepoProvider; label: string; hint: string }> = [
     { id: "github", label: "GitHub", hint: "owner/repo or https://github.com/owner/repo" },
+    { id: "gist", label: "Github Gist", hint: "gist id or https://gist.github.com/<user>/<id>" },    
     { id: "gitlab", label: "GitLab", hint: "group/repo or https://gitlab.com/group/repo" },
-    { id: "gist", label: "Gist", hint: "gist id or https://gist.github.com/<user>/<id>" },
-    { id: "zenodo", label: "Zenodo", hint: "DOI or record id (e.g. 10.5281/zenodo.3242074)" },
-    { id: "figshare", label: "Figshare", hint: "DOI, article id or URL" },
-    { id: "hydroshare", label: "Hydroshare", hint: "resource UUID or URL" },
-    { id: "dataverse", label: "Dataverse", hint: "persistentId (doi:...) or dataset URL" },
-    { id: "ckan", label: "CKAN", hint: "dataset URL (CKAN instance)" },
     { id: "git", label: "Git (URL)", hint: "git clone URL (https://... or git@...)" },
+    { id: "zenodo", label: "Zenodo DOI", hint: "DOI or record id (e.g. 10.5281/zenodo.3242074)" },
+    { id: "figshare", label: "Figshare DOI", hint: "DOI, article id or URL" },
+    { id: "hydroshare", label: "Hydroshare", hint: "resource UUID or URL" },
+    { id: "dataverse", label: "Dataverse DOI", hint: "persistentId (doi:...) or dataset URL" },
+    { id: "ckan", label: "CKAN dataset", hint: "dataset URL (CKAN instance)" },
+
   ];
 
   const providerMeta = React.useMemo(() => {
@@ -425,7 +426,7 @@ function BuildAndLaunch(props: {
             {isBuilding ? "Building..." : "Build image"}
           </button>
 
-          <button type="button" className="btn btn-outline-secondary binder-open-logs-button" onClick={buildControls.toggleLogs}>
+          <button type="button" className="btn binder-open-logs-button" onClick={buildControls.toggleLogs}>
             {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
 

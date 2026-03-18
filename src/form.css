@@ -305,18 +305,3 @@
   }
 }
 
-/* Make the Open logs button follow the same theme-aware text color as native controls. */
-.binder-open-logs-button {
-  color: var(--bs-body-color);
-  border-color: var(--bs-secondary-color);
-}
-
-.binder-open-logs-button:hover,
-.binder-open-logs-button:focus,
-.binder-open-logs-button:focus-visible,
-.binder-open-logs-button:active {
-  color: var(--bs-body-color);
-  border-color: var(--bs-body-color);
-  background-color: transparent;
-  box-shadow: none;
-}
