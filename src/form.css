@@ -302,25 +302,20 @@
 }
 
 .binder-open-logs-button {
-  display: inline-block;
-  padding: 0.375rem 0.75rem;
-  border: 1px solid currentColor;
-  border-radius: 0.375rem;
-  background: transparent;
-  color: inherit;
-  line-height: 1.5;
-  text-align: center;
-  text-decoration: none;
-  cursor: pointer;
+  color: inherit !important;
+  background-color: transparent !important;
+
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-color: currentColor !important;
 }
 
 .binder-open-logs-button:hover,
 .binder-open-logs-button:focus,
 .binder-open-logs-button:focus-visible,
 .binder-open-logs-button:active {
-  border-color: currentColor;
-  background: transparent;
-  color: inherit;
-  box-shadow: none;
-  outline: none;
+  color: inherit !important;
+  background-color: transparent !important;
+  border-color: currentColor !important;
+  box-shadow: none !important;
 }
