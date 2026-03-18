@@ -227,7 +227,7 @@ function BinderProfileSelect(props: {
   if (profiles.length === 0) return null;
 
   return (
-    <div className="card mb-0" aria-disabled={disabled}>
+    <div className="card mb-3" aria-disabled={disabled}>
       <div className="card-body">
         <h4 className="mb-1">Environment</h4>
         <div className="text-muted mb-3" style={{ fontSize: "0.95rem" }}>
@@ -426,7 +426,7 @@ function BuildAndLaunch(props: {
             {isBuilding ? "Building..." : "Build image"}
           </button>
 
-          <button type="button" className="btn btn-outline-secondary" onClick={buildControls.toggleLogs}>
+          <button type="button" className="btn btn-outline-body" onClick={buildControls.toggleLogs}>
             {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
 
