@@ -297,17 +297,16 @@ function RepositoryForm(props: {
         <h4 className="mb-2">Repository</h4>
 
         <div className="row g-2">
-          <div className="col-12 col-md-3">
+          <div className="col-12 col-md-3 binder-provider-column">
             <label className="form-label">Provider</label>
             <select
-              className={`form-select binder-provider-select ${validationError ? "binder-provider-select-invalid" : ""}`}
+              className="form-select binder-provider-select"
               value={repoState.provider}
               onChange={(e) => {
                 repoState.setProvider(e.target.value as RepoProvider);
                 onRepositoryInputChange();
               }}
               disabled={disabled}
-              aria-invalid={Boolean(validationError)}
             >
               {providers.map((provider) => (
                 <option key={provider.id} value={provider.id}>
@@ -317,7 +316,7 @@ function RepositoryForm(props: {
             </select>
           </div>
 
-          <div className="col-12 col-md-9">
+          <div className="col-12 col-md-9 binder-repository-column">
             <label className="form-label">Repository</label>
             <input
               className={`form-control ${validationError ? "is-invalid" : ""}`}
@@ -330,8 +329,8 @@ function RepositoryForm(props: {
               autoComplete="off"
               spellCheck={false}
               disabled={disabled}
-              aria-invalid={Boolean(validationError)}
             />
+            {validationError ? <div className="invalid-feedback">{validationError}</div> : null}
             <div className="form-text">
               Example: <code>{providerMeta.hint}</code>
             </div>
@@ -411,9 +410,9 @@ function BuildAndLaunch(props: {
   };
 
   return (
-    <div className="card mb-3">
+    <div className="card mb-0">
       <div className="card-body">
-        <h4 className="mb-2">Build</h4>
+        <h4 className="mb-2">Build &amp; launch</h4>
 
         <div className="d-flex gap-2 align-items-center flex-wrap">
           <button
@@ -425,7 +424,11 @@ function BuildAndLaunch(props: {
             {isBuilding ? "Building..." : "Build image"}
           </button>
 
-          <button type="button" className="btn btn-outline-secondary" onClick={buildControls.toggleLogs}>
+          <button
+            type="button"
+            className="btn btn-outline-secondary binder-open-logs-button"
+            onClick={buildControls.toggleLogs}
+          >
             {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
 
