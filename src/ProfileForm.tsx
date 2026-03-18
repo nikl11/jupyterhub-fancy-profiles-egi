@@ -300,13 +300,14 @@ function RepositoryForm(props: {
           <div className="col-12 col-md-3">
             <label className="form-label">Provider</label>
             <select
-              className="form-select binder-provider-select"
+              className={`form-select binder-provider-select ${validationError ? "binder-provider-select-invalid" : ""}`}
               value={repoState.provider}
               onChange={(e) => {
                 repoState.setProvider(e.target.value as RepoProvider);
                 onRepositoryInputChange();
               }}
               disabled={disabled}
+              aria-invalid={Boolean(validationError)}
             >
               {providers.map((provider) => (
                 <option key={provider.id} value={provider.id}>
@@ -329,8 +330,8 @@ function RepositoryForm(props: {
               autoComplete="off"
               spellCheck={false}
               disabled={disabled}
+              aria-invalid={Boolean(validationError)}
             />
-            {validationError ? <div className="invalid-feedback">{validationError}</div> : null}
             <div className="form-text">
               Example: <code>{providerMeta.hint}</code>
             </div>
@@ -412,7 +413,7 @@ function BuildAndLaunch(props: {
   return (
     <div className="card mb-3">
       <div className="card-body">
-        <h4 className="mb-2">Build &amp; launch</h4>
+        <h4 className="mb-2">Build</h4>
 
         <div className="d-flex gap-2 align-items-center flex-wrap">
           <button

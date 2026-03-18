@@ -277,3 +277,16 @@
   background-color: #495057;
   color: #ffffff;
 }
+
+
+/* Match provider select focus and validation styling with the repository field. */
+.binder-provider-select:focus,
+.binder-provider-select:focus-visible,
+.binder-provider-select-invalid,
+.binder-provider-select-invalid:focus,
+.binder-provider-select-invalid:focus-visible {
+  background-color: #495057;
+  color: #ffffff;
+  border-color: #fd7e14;
+  box-shadow: 0 0 0 0.25rem rgba(253, 126, 20, 0.25);
+}
