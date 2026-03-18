@@ -10,7 +10,7 @@
 }
 
 .fp-container {
-  max-width: 1080px;
+  max-width: 900px;
   margin: 0 auto;
   width: 100%;
 }
@@ -279,48 +279,44 @@
 }
 
 
-/* Make the provider column slightly narrower than the default 3/12 Bootstrap width. */
-@media (min-width: 768px) {
-  .binder-provider-column {
-    flex: 0 0 20%;
-    max-width: 20%;
-  }
-
-  .binder-repository-column {
-    flex: 0 0 80%;
-    max-width: 80%;
-  }
+/* Match provider select focus and validation styling with the repository field. */
+.binder-provider-select:focus,
+.binder-provider-select:focus-visible,
+.binder-provider-select-invalid,
+.binder-provider-select-invalid:focus,
+.binder-provider-select-invalid:focus-visible {
+  background-color: #495057;
+  color: #ffffff;
+  border-color: #fd7e14;
+  box-shadow: 0 0 0 0.25rem rgba(253, 126, 20, 0.25);
 }
 
 
-/* Improve Open logs button contrast in both light and dark themes. */
+/* Make the provider selector slightly narrower than the default 3/12 layout. */
+@media (min-width: 768px) {
+  .binder-provider-column {
+    flex: 0 0 22%;
+    max-width: 22%;
+  }
+
+  .binder-repository-column {
+    flex: 0 0 78%;
+    max-width: 78%;
+  }
+}
+
+/* Make the Open logs button follow the same theme-aware text color as native controls. */
 .binder-open-logs-button {
-  color: #212529;
-  border-color: #6c757d;
+  color: var(--bs-body-color);
+  border-color: var(--bs-secondary-color);
 }
 
 .binder-open-logs-button:hover,
 .binder-open-logs-button:focus,
-.binder-open-logs-button:focus-visible {
-  color: #212529;
-  border-color: #495057;
-  background-color: #f8f9fa;
+.binder-open-logs-button:focus-visible,
+.binder-open-logs-button:active {
+  color: var(--bs-body-color);
+  border-color: var(--bs-body-color);
+  background-color: transparent;
   box-shadow: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  .binder-open-logs-button {
-    color: #f8f9fa;
-    border-color: #adb5bd;
-    background-color: transparent;
-  }
-
-  .binder-open-logs-button:hover,
-  .binder-open-logs-button:focus,
-  .binder-open-logs-button:focus-visible {
-    color: #ffffff;
-    border-color: #dee2e6;
-    background-color: rgba(255, 255, 255, 0.08);
-    box-shadow: none;
-  }
 }

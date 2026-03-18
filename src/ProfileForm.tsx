@@ -123,7 +123,7 @@ function ModeToggle(props: {
               onClick={() => onChange("environment")}
               disabled={disabled}
             >
-              Environment only
+              Prebuilt mode
             </button>
           </div>
         </div>
@@ -227,7 +227,7 @@ function BinderProfileSelect(props: {
   if (profiles.length === 0) return null;
 
   return (
-    <div className="card mb-3" aria-disabled={disabled}>
+    <div className="card mb-0" aria-disabled={disabled}>
       <div className="card-body">
         <h4 className="mb-1">Environment</h4>
         <div className="text-muted mb-3" style={{ fontSize: "0.95rem" }}>
@@ -300,13 +300,14 @@ function RepositoryForm(props: {
           <div className="col-12 col-md-3 binder-provider-column">
             <label className="form-label">Provider</label>
             <select
-              className="form-select binder-provider-select"
+              className={`form-select binder-provider-select ${validationError ? "binder-provider-select-invalid" : ""}`}
               value={repoState.provider}
               onChange={(e) => {
                 repoState.setProvider(e.target.value as RepoProvider);
                 onRepositoryInputChange();
               }}
               disabled={disabled}
+              aria-invalid={Boolean(validationError)}
             >
               {providers.map((provider) => (
                 <option key={provider.id} value={provider.id}>
@@ -329,8 +330,8 @@ function RepositoryForm(props: {
               autoComplete="off"
               spellCheck={false}
               disabled={disabled}
+              aria-invalid={Boolean(validationError)}
             />
-            {validationError ? <div className="invalid-feedback">{validationError}</div> : null}
             <div className="form-text">
               Example: <code>{providerMeta.hint}</code>
             </div>
@@ -412,7 +413,7 @@ function BuildAndLaunch(props: {
   return (
     <div className="card mb-0">
       <div className="card-body">
-        <h4 className="mb-2">Build &amp; launch</h4>
+        <h4 className="mb-2">Build</h4>
 
         <div className="d-flex gap-2 align-items-center flex-wrap">
           <button
@@ -424,11 +425,7 @@ function BuildAndLaunch(props: {
             {isBuilding ? "Building..." : "Build image"}
           </button>
 
-          <button
-            type="button"
-            className="btn btn-outline-secondary binder-open-logs-button"
-            onClick={buildControls.toggleLogs}
-          >
+          <button type="button" className="btn btn-outline-secondary binder-open-logs-button" onClick={buildControls.toggleLogs}>
             {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
 
