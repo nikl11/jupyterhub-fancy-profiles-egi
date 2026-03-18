@@ -303,8 +303,18 @@
 
 .binder-open-logs-button {
   color: inherit;
-  border: 1px solid currentColor !important;
-  background: transparent !important;
+  background: transparent;
+
+  --bs-btn-color: currentColor;
+  --bs-btn-border-color: currentColor;
+  --bs-btn-hover-color: currentColor;
+  --bs-btn-hover-border-color: currentColor;
+  --bs-btn-active-color: currentColor;
+  --bs-btn-active-border-color: currentColor;
+  --bs-btn-bg: transparent;
+  --bs-btn-hover-bg: transparent;
+  --bs-btn-active-bg: transparent;
+  --bs-btn-focus-box-shadow: none;
 }
 
 .binder-open-logs-button:hover,
@@ -312,7 +322,6 @@
 .binder-open-logs-button:focus-visible,
 .binder-open-logs-button:active {
   color: inherit;
-  border-color: currentColor !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  box-shadow: none;
 }
