@@ -192,24 +192,6 @@ function EnvironmentCards(props: {
             );
           })}
         </div>
-
-        {/* This turns the environment selector into a dropdown instead of the card list above. */}
-        {false ? (
-          <div className="mt-3">
-            <select
-              className="form-select"
-              value={selectedSlug}
-              onChange={(e) => onSelect(e.target.value)}
-              disabled={disabled}
-            >
-              {profiles.map((profile) => (
-                <option key={profile.slug} value={profile.slug}>
-                  {profile.display_name ?? profile.slug}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
       </div>
     </div>
   );
