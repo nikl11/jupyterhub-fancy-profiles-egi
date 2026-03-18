@@ -249,8 +249,6 @@
   background-color: rgba(255, 255, 255, 0.06);
 }
 
-
-
 /* Binder repository form tweaks */
 .binder-provider-select {
   background-color: #495057;
@@ -278,7 +276,6 @@
   color: #ffffff;
 }
 
-
 /* Match provider select focus and validation styling with the repository field. */
 .binder-provider-select:focus,
 .binder-provider-select:focus-visible,
@@ -290,7 +287,6 @@
   border-color: #fd7e14;
   box-shadow: 0 0 0 0.25rem rgba(253, 126, 20, 0.25);
 }
-
 
 /* Make the provider selector slightly narrower than the default 3/12 layout. */
 @media (min-width: 768px) {
@@ -305,3 +301,17 @@
   }
 }
 
+/* Make Open logs button border follow text color (same as labels) */
+.binder-open-logs-button {
+  border: 1px solid currentColor;
+  background: transparent;
+}
+
+.binder-open-logs-button:hover,
+.binder-open-logs-button:focus,
+.binder-open-logs-button:focus-visible,
+.binder-open-logs-button:active {
+  border-color: currentColor;
+  background: transparent;
+  box-shadow: none;
+}
