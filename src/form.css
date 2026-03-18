@@ -301,17 +301,18 @@
   }
 }
 
-/* Make Open logs button border follow text color (same as labels) */
 .binder-open-logs-button {
-  border: 1px solid currentColor;
-  background: transparent;
+  color: inherit;
+  border: 1px solid currentColor !important;
+  background: transparent !important;
 }
 
 .binder-open-logs-button:hover,
 .binder-open-logs-button:focus,
 .binder-open-logs-button:focus-visible,
 .binder-open-logs-button:active {
-  border-color: currentColor;
-  background: transparent;
-  box-shadow: none;
+  color: inherit;
+  border-color: currentColor !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
