@@ -2,6 +2,12 @@ export type ThemeName = "egi" | "eosc";
 
 declare const __JHFP_THEME__: ThemeName | undefined;
 
+declare global {
+  interface Window {
+    __JHFP_THEME__?: ThemeName;
+  }
+}
+
 export function getTheme(): ThemeName {
   // Compile-time injected by webpack DefinePlugin (fallback to "egi")
   const baked = (typeof __JHFP_THEME__ !== "undefined" ? __JHFP_THEME__ : "egi") as ThemeName;
@@ -16,7 +22,7 @@ export function applyThemeClass(): ThemeName {
   root.classList.add(theme === "eosc" ? "jhfp-theme-eosc" : "jhfp-theme-egi");
 
   // Optional debug
-  (window as any).__JHFP_THEME__ = theme;
+  window.__JHFP_THEME__ = theme;
 
   return theme;
 }

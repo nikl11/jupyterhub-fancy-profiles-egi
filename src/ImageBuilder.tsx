@@ -9,8 +9,7 @@ import useFormCache from "./hooks/useFormCache";
 import { PermalinkContext } from "./context/Permalink";
 import { ICustomOptionProps } from "./types/fields";
 
-const TOKEN_KEY = "jupytherhub-build-token"; 
-const DELETE_NONSENCE = "for git push, delete later";
+const TOKEN_KEY = "jupytherhub-build-token";
 
 export type BinderBuildArgs = {
   provider: RepoProvider;
@@ -40,9 +39,9 @@ async function getApiToken() {
   const userResponse = await fetch(`/hub/api/user?_xsrf=${xsrfToken}`);
   const { name } = await userResponse.json();
 
-  const exisitingToken = localStorage.getItem(TOKEN_KEY);
-  if (exisitingToken) {
-    const { id, expires_at, token } = JSON.parse(exisitingToken);
+  const existingToken = localStorage.getItem(TOKEN_KEY);
+  if (existingToken) {
+    const { id, expires_at, token } = JSON.parse(existingToken);
     const expiryDate = Date.parse(expires_at);
     const isExpired = expiryDate < new Date().getTime();
 
@@ -140,8 +139,8 @@ function normalizeZenodo(input: string): { spec: string } {
 
   const candidate = u
     ? stripTrailingSlash(
-        `${u.host}${u.pathname}`.replace(/^doi\.org\//i, "").replace(/^dx\.doi\.org\//i, ""),
-      )
+      `${u.host}${u.pathname}`.replace(/^doi\.org\//i, "").replace(/^dx\.doi\.org\//i, ""),
+    )
     : raw;
 
   const doiMatch = candidate.match(/(10\.\d+\/zenodo\.\d+)/i);
@@ -192,11 +191,11 @@ function normalizeDataverse(input: string): { spec: string } {
     if (pid) return { spec: pid.replace(/\s+/g, "") };
   }
 
-  const m1 = raw.match(/(doi:\s*10\.\d+\/\S+)/i);
-  if (m1) return { spec: m1[1].replace(/\s+/g, "") };
+  const doiWithPrefixMatch = raw.match(/(doi:\s*10\.\d+\/\S+)/i);
+  if (doiWithPrefixMatch) return { spec: doiWithPrefixMatch[1].replace(/\s+/g, "") };
 
-  const m2 = raw.match(/(10\.\d+\/\S+)/);
-  if (m2) return { spec: m2[1] };
+  const plainDoiMatch = raw.match(/(10\.\d+\/\S+)/);
+  if (plainDoiMatch) return { spec: plainDoiMatch[1] };
 
   return { spec: raw };
 }
@@ -458,7 +457,7 @@ export function ImageBuilder(props?: Partial<ICustomOptionProps>) {
     }
   };
 
-  // We render everything, but only toggle visibility based on wether we are being
+  // We render everything, but only toggle visibility based on whether we are being
   // shown or hidden. This provides for more DOM stability, and also allows the image
   // to continue being built evn if the user moves away elsewhere. When hidden, we just
   // don't generate the hidden input that posts the built image out.
@@ -529,7 +528,7 @@ export function ImageBuilder(props?: Partial<ICustomOptionProps>) {
         style={{ display: "none" }}
         onInvalid={() =>
           setCustomImageError("Wait for the image build to complete.")}
-        onChange={() => {}} // Hack to prevent a console error, while at the same time allowing for this field to be validatable, ie.
+        onChange={() => {}}
       />
       {customImageError && isActive ? (
         <div className="field-error">{customImageError}</div>
@@ -547,10 +546,8 @@ async function buildImage(
 ) {
   const apiToken = await getApiToken();
 
-  // @ts-expect-error - v0.5.0 client types not available
   const { BinderRepository } = await import("@jupyterhub/binderhub-client/client.js");
   const providerSpec = "gh/" + repo + "/" + ref;
-  // FIXME: Assume the binder api is available in the same hostname, under /services/binder/
   const buildEndPointURL = new URL(
     "/services/binder/build/",
     window.location.origin,
@@ -636,19 +633,20 @@ export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
       try {
         const builtImage = await buildImageFromArgs(args, (chunk) => {
           if (buildIdRef.current !== buildId) return;
-          setLogs((prev) => prev + chunk);
+          setLogs((previousLogs) => previousLogs + chunk);
         });
 
         if (buildIdRef.current !== buildId) return;
         setImageName(builtImage);
         setStatus("done");
-        setLogs((prev) => prev + "\nImage has been built! Click the start button to launch your server\n");
-      } catch (e: any) {
+        setLogs((previousLogs) => previousLogs + "\nImage has been built! Click the Launch button to start your server\n");
+      } catch (error: unknown) {
         if (buildIdRef.current !== buildId) return;
-        const msg = typeof e?.message === "string" ? e.message : String(e);
+        const message = error instanceof Error ? error.message : String(error);
+
         setStatus("error");
-        setError(msg);
-        setLogs((prev) => prev + `\n[failed] ${msg}\n`);
+        setError(message);
+        setLogs((previousLogs) => previousLogs + `\n[failed] ${message}\n`);
       }
     })();
   }, []);

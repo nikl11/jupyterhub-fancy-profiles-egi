@@ -57,7 +57,7 @@ function renamePrimarySubmitButton(label: string) {
   const form = document.querySelector<HTMLFormElement>("form");
   if (!form) return;
 
-  const btn = form.querySelector(`button[type="submit"], input[type="submit"]`);
+  const btn = form.querySelector("button[type=\"submit\"], input[type=\"submit\"]");
   if (!btn) return;
 
   if (btn instanceof HTMLInputElement) btn.value = label;
@@ -69,7 +69,7 @@ function setPrimarySubmitButtonDisabled(disabled: boolean) {
   if (!form) return;
 
   const btn = form.querySelector<HTMLButtonElement | HTMLInputElement>(
-    `button[type="submit"], input[type="submit"]`
+    "button[type=\"submit\"], input[type=\"submit\"]"
   );
   if (!btn) return;
 
