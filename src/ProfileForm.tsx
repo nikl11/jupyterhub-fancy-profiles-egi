@@ -426,7 +426,7 @@ function BuildAndLaunch(props: {
             {isBuilding ? "Building..." : "Build image"}
           </button>
 
-          <button type="button" className="btn btn-outline-secondary binder-open-logs-button" onClick={buildControls.toggleLogs}>
+          <button type="button" className="btn binder-open-logs-button" onClick={buildControls.toggleLogs}>
             {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
 

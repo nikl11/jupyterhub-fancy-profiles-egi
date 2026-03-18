@@ -302,12 +302,17 @@
 }
 
 .binder-open-logs-button {
-  color: inherit !important;
+  color: #495057;
+  border: 1px solid currentColor;
+  background: transparent;
 }
 
 .binder-open-logs-button:hover,
 .binder-open-logs-button:focus,
 .binder-open-logs-button:focus-visible,
 .binder-open-logs-button:active {
-  color: inherit !important;
+  color: #495057;
+  border-color: currentColor;
+  background: transparent;
+  box-shadow: none;
 }
