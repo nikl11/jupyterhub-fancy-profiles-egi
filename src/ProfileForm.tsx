@@ -83,11 +83,13 @@ type BinderPermalinkParams = {
   repo: string;
   ref: string;
   subdir: string;
+  builtImageName?: string;
   autoBuild?: boolean;
   autoLaunch?: boolean;
 };
 
 type PendingPermalinkAction = {
+  builtImageName?: string;
   autoBuild: boolean;
   autoLaunch: boolean;
 };
@@ -112,6 +114,12 @@ function buildBinderPermalink(params: BinderPermalinkParams) {
     url.searchParams.set(`${PERMALINK_PARAM_PREFIX}subdir`, params.subdir);
   } else {
     url.searchParams.delete(`${PERMALINK_PARAM_PREFIX}subdir`);
+  }
+
+  if (params.builtImageName?.trim()) {
+    url.searchParams.set(`${PERMALINK_PARAM_PREFIX}image`, params.builtImageName);
+  } else {
+    url.searchParams.delete(`${PERMALINK_PARAM_PREFIX}image`);
   }
 
   if (params.autoBuild) {
@@ -140,6 +148,7 @@ function parseBinderPermalink() {
   const repo = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}repo`) ?? "";
   const ref = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}ref`) ?? "";
   const subdir = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}subdir`) ?? "";
+  const builtImageName = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}image`) ?? "";
   const autoBuild = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}autobuild`) === "1";
   const autoLaunch = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}autolaunch`) === "1";
 
@@ -152,6 +161,7 @@ function parseBinderPermalink() {
     ref,
     subdir,
     pendingAction: {
+      builtImageName: builtImageName || undefined,
       autoBuild,
       autoLaunch,
     } satisfies PendingPermalinkAction,
@@ -520,7 +530,8 @@ function BuildAndLaunch(props: {
       repo: repo.repo,
       ref: repo.ref,
       subdir: repo.subdir,
-      autoBuild: true,
+      builtImageName: buildState.imageName,
+      autoBuild: false,
       autoLaunch: true,
     });
   }, [buildState.imageName, selectedBinderProfileSlug, repo.provider, repo.repo, repo.ref, repo.subdir]);
@@ -603,7 +614,8 @@ function BuildAndLaunch(props: {
                     <div className="fw-semibold mb-1">Share link</div>
                     <div className="text-muted mb-2" style={{ fontSize: "0.9rem" }}>
                       Anyone who opens this link will land on <code>/hub/spawn</code> with the same Binder inputs
-                      prefilled. The page will automatically rebuild and launch using the selected Binder profile.
+                      prefilled and the built image reference attached. The page will try to launch that exact built
+                      image again using the selected Binder profile.
                     </div>
 
                     <div className="input-group">
@@ -749,7 +761,26 @@ export function App(props: Props) {
   const hasSubmittedPermalinkLaunchRef = React.useRef(false);
 
   React.useEffect(() => {
+    if (!pendingPermalinkAction?.autoLaunch) return;
+    if (!pendingPermalinkAction.builtImageName) return;
+    if (hasSubmittedPermalinkLaunchRef.current) return;
+    if (mode !== "binder") return;
+    if (!selectedBinderProfile) return;
+
+    const imageChoiceField = `profile-option-${selectedBinderProfile.slug}--image`;
+    const imageUnlistedField = `profile-option-${selectedBinderProfile.slug}--image--unlisted-choice`;
+
+    ensureFormField("profile", selectedBinderProfile.slug);
+    ensureFormField(imageChoiceField, "unlisted_choice");
+    ensureFormField(imageUnlistedField, pendingPermalinkAction.builtImageName);
+
+    hasSubmittedPermalinkLaunchRef.current = true;
+    submitPrimaryForm();
+  }, [pendingPermalinkAction, mode, selectedBinderProfile]);
+
+  React.useEffect(() => {
     if (!pendingPermalinkAction?.autoBuild) return;
+    if (pendingPermalinkAction.builtImageName) return;
     if (hasStartedPermalinkBuildRef.current) return;
     if (mode !== "binder") return;
     if (!selectedBinderProfile) return;
@@ -777,6 +808,7 @@ export function App(props: Props) {
 
   React.useEffect(() => {
     if (!pendingPermalinkAction?.autoLaunch) return;
+    if (pendingPermalinkAction.builtImageName) return;
     if (hasSubmittedPermalinkLaunchRef.current) return;
     if (mode !== "binder") return;
     if (!selectedBinderProfile) return;
