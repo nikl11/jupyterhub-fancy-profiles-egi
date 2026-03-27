@@ -509,7 +509,7 @@ function BuildAndLaunch(props: {
       autoBuild: true,
       autoLaunch: true,
     });
-  }, [buildState.imageName, selectedBinderProfileSlug, repo.provider, repo.repo, repo.ref, repo.subdir]);
+  }, [buildState.imageName, repo.provider, repo.repo, repo.ref, repo.subdir]);
 
   React.useEffect(() => {
     if (!buildState.logsOpen || !logRef.current) return;
