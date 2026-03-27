@@ -557,11 +557,10 @@ function BuildAndLaunch(props: {
         <div className="d-flex gap-2 align-items-center flex-wrap">
           <button
             type="button"
-            className="btn btn-primary"
-            onClick={handleBuildClick}
-            disabled={lockInputs || isBuilding}
+            className="btn btn-outline-secondary"
+            onClick={buildControls.toggleLogs}
           >
-            {isBuilding ? "Building..." : "Build image"}
+            {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
 
           <button type="button" className="btn binder-open-logs-button" onClick={buildControls.toggleLogs}>
