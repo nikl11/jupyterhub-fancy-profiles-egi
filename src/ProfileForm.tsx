@@ -78,18 +78,15 @@ function setPrimarySubmitButtonDisabled(disabled: boolean) {
 }
 
 type BinderPermalinkParams = {
-  profileSlug: string;
   provider: RepoProvider;
   repo: string;
   ref: string;
   subdir: string;
-  builtImageName?: string;
   autoBuild?: boolean;
   autoLaunch?: boolean;
 };
 
 type PendingPermalinkAction = {
-  builtImageName?: string;
   autoBuild: boolean;
   autoLaunch: boolean;
 };
@@ -100,7 +97,6 @@ function buildBinderPermalink(params: BinderPermalinkParams) {
   const url = new URL(window.location.href);
 
   url.searchParams.set(`${PERMALINK_PARAM_PREFIX}mode`, "binder");
-  url.searchParams.set(`${PERMALINK_PARAM_PREFIX}profile`, params.profileSlug);
   url.searchParams.set(`${PERMALINK_PARAM_PREFIX}provider`, params.provider);
   url.searchParams.set(`${PERMALINK_PARAM_PREFIX}repo`, params.repo);
 
@@ -114,12 +110,6 @@ function buildBinderPermalink(params: BinderPermalinkParams) {
     url.searchParams.set(`${PERMALINK_PARAM_PREFIX}subdir`, params.subdir);
   } else {
     url.searchParams.delete(`${PERMALINK_PARAM_PREFIX}subdir`);
-  }
-
-  if (params.builtImageName?.trim()) {
-    url.searchParams.set(`${PERMALINK_PARAM_PREFIX}image`, params.builtImageName);
-  } else {
-    url.searchParams.delete(`${PERMALINK_PARAM_PREFIX}image`);
   }
 
   if (params.autoBuild) {
@@ -143,25 +133,21 @@ function parseBinderPermalink() {
 
   if (mode !== "binder") return null;
 
-  const profileSlug = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}profile`) ?? "";
   const provider = (url.searchParams.get(`${PERMALINK_PARAM_PREFIX}provider`) ?? "github") as RepoProvider;
   const repo = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}repo`) ?? "";
   const ref = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}ref`) ?? "";
   const subdir = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}subdir`) ?? "";
-  const builtImageName = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}image`) ?? "";
   const autoBuild = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}autobuild`) === "1";
   const autoLaunch = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}autolaunch`) === "1";
 
-  if (!profileSlug || !repo.trim()) return null;
+  if (!repo.trim()) return null;
 
   return {
-    profileSlug,
     provider,
     repo,
     ref,
     subdir,
     pendingAction: {
-      builtImageName: builtImageName || undefined,
       autoBuild,
       autoLaunch,
     } satisfies PendingPermalinkAction,
@@ -503,35 +489,24 @@ function BuildAndLaunch(props: {
   buildState: ReturnType<typeof useBinderBuild>[0];
   buildControls: ReturnType<typeof useBinderBuild>[1];
   repo: { provider: RepoProvider; repo: string; ref: string; subdir: string };
-  selectedBinderProfileSlug: string;
   lockInputs: boolean;
   validationError: string;
   onValidationError: (message: string) => void;
 }) {
-  const {
-    buildState,
-    buildControls,
-    repo,
-    selectedBinderProfileSlug,
-    lockInputs,
-    validationError,
-    onValidationError,
-  } = props;
+  const { buildState, buildControls, repo, lockInputs, validationError, onValidationError } = props;
   const isBuilding = buildState.status === "building";
   const logRef = React.useRef<HTMLPreElement | null>(null);
   const [copyStatus, setCopyStatus] = React.useState<"idle" | "copied" | "error">("idle");
 
   const shareLink = React.useMemo(() => {
-    if (!buildState.imageName || !selectedBinderProfileSlug || !repo.repo.trim()) return "";
+    if (!buildState.imageName || !repo.repo.trim()) return "";
 
     return buildBinderPermalink({
-      profileSlug: selectedBinderProfileSlug,
       provider: repo.provider,
       repo: repo.repo,
       ref: repo.ref,
       subdir: repo.subdir,
-      builtImageName: buildState.imageName,
-      autoBuild: false,
+      autoBuild: true,
       autoLaunch: true,
     });
   }, [buildState.imageName, selectedBinderProfileSlug, repo.provider, repo.repo, repo.ref, repo.subdir]);
@@ -543,7 +518,7 @@ function BuildAndLaunch(props: {
 
   React.useEffect(() => {
     setCopyStatus("idle");
-  }, [buildState.imageName, repo.provider, repo.repo, repo.ref, repo.subdir, selectedBinderProfileSlug]);
+  }, [buildState.imageName, repo.provider, repo.repo, repo.ref, repo.subdir]);
 
   const handleBuildClick = () => {
     if (!repo.repo.trim()) {
@@ -614,8 +589,7 @@ function BuildAndLaunch(props: {
                     <div className="fw-semibold mb-1">Share link</div>
                     <div className="text-muted mb-2" style={{ fontSize: "0.9rem" }}>
                       Anyone who opens this link will land on <code>/hub/spawn</code> with the same Binder inputs
-                      prefilled and the built image reference attached. The page will try to launch that exact built
-                      image again using the selected Binder profile.
+                      prefilled. The page will automatically rebuild and launch using the default Binder profile.
                     </div>
 
                     <div className="input-group">
@@ -674,18 +648,23 @@ export function App(props: Props) {
   const [buildState, buildControls] = useBinderBuild();
   const lockInputs = buildState.status === "building";
 
+  const hasAppliedPermalinkRef = React.useRef(false);
+
   React.useEffect(() => {
+    if (hasAppliedPermalinkRef.current) return;
+
     const parsedPermalink = parseBinderPermalink();
     if (!parsedPermalink) return;
 
+    hasAppliedPermalinkRef.current = true;
     setMode("binder");
-    setBinderProfileSlug(parsedPermalink.profileSlug);
+    setBinderProfileSlug(defaultBinderSlug);
     repoState.setProvider(parsedPermalink.provider);
     repoState.setRepo(parsedPermalink.repo);
     repoState.setRef(parsedPermalink.ref);
     repoState.setSubdir(parsedPermalink.subdir);
     setPendingPermalinkAction(parsedPermalink.pendingAction);
-  }, []);
+  }, [defaultBinderSlug, repoState]);
 
   const selectedProfileSlug = mode === "binder" && binderProfileSlug ? binderProfileSlug : environmentSlug;
   const selectedBinderProfile = React.useMemo(
@@ -761,26 +740,7 @@ export function App(props: Props) {
   const hasSubmittedPermalinkLaunchRef = React.useRef(false);
 
   React.useEffect(() => {
-    if (!pendingPermalinkAction?.autoLaunch) return;
-    if (!pendingPermalinkAction.builtImageName) return;
-    if (hasSubmittedPermalinkLaunchRef.current) return;
-    if (mode !== "binder") return;
-    if (!selectedBinderProfile) return;
-
-    const imageChoiceField = `profile-option-${selectedBinderProfile.slug}--image`;
-    const imageUnlistedField = `profile-option-${selectedBinderProfile.slug}--image--unlisted-choice`;
-
-    ensureFormField("profile", selectedBinderProfile.slug);
-    ensureFormField(imageChoiceField, "unlisted_choice");
-    ensureFormField(imageUnlistedField, pendingPermalinkAction.builtImageName);
-
-    hasSubmittedPermalinkLaunchRef.current = true;
-    submitPrimaryForm();
-  }, [pendingPermalinkAction, mode, selectedBinderProfile]);
-
-  React.useEffect(() => {
     if (!pendingPermalinkAction?.autoBuild) return;
-    if (pendingPermalinkAction.builtImageName) return;
     if (hasStartedPermalinkBuildRef.current) return;
     if (mode !== "binder") return;
     if (!selectedBinderProfile) return;
@@ -808,7 +768,6 @@ export function App(props: Props) {
 
   React.useEffect(() => {
     if (!pendingPermalinkAction?.autoLaunch) return;
-    if (pendingPermalinkAction.builtImageName) return;
     if (hasSubmittedPermalinkLaunchRef.current) return;
     if (mode !== "binder") return;
     if (!selectedBinderProfile) return;
@@ -881,7 +840,6 @@ export function App(props: Props) {
               ref: repoState.ref,
               subdir: repoState.subdir,
             }}
-            selectedBinderProfileSlug={binderProfileSlug}
             lockInputs={lockInputs}
             validationError={binderValidationError}
             onValidationError={setBinderValidationError}
