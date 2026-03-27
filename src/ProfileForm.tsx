@@ -57,7 +57,7 @@ function renamePrimarySubmitButton(label: string) {
   const form = document.querySelector<HTMLFormElement>("form");
   if (!form) return;
 
-  const btn = form.querySelector("button[type=\"submit\"], input[type=\"submit\"]");
+  const btn = form.querySelector(`button[type="submit"], input[type="submit"]`);
   if (!btn) return;
 
   if (btn instanceof HTMLInputElement) btn.value = label;
@@ -69,12 +69,122 @@ function setPrimarySubmitButtonDisabled(disabled: boolean) {
   if (!form) return;
 
   const btn = form.querySelector<HTMLButtonElement | HTMLInputElement>(
-    "button[type=\"submit\"], input[type=\"submit\"]"
+    `button[type="submit"], input[type="submit"]`
   );
   if (!btn) return;
 
   btn.disabled = disabled;
   btn.setAttribute("aria-disabled", disabled ? "true" : "false");
+}
+
+type BinderPermalinkParams = {
+  profileSlug: string;
+  provider: RepoProvider;
+  repo: string;
+  ref: string;
+  subdir: string;
+  autoBuild?: boolean;
+  autoLaunch?: boolean;
+};
+
+type PendingPermalinkAction = {
+  autoBuild: boolean;
+  autoLaunch: boolean;
+};
+
+const PERMALINK_PARAM_PREFIX = "fp_";
+
+function buildBinderPermalink(params: BinderPermalinkParams) {
+  const url = new URL(window.location.href);
+
+  url.searchParams.set(`${PERMALINK_PARAM_PREFIX}mode`, "binder");
+  url.searchParams.set(`${PERMALINK_PARAM_PREFIX}profile`, params.profileSlug);
+  url.searchParams.set(`${PERMALINK_PARAM_PREFIX}provider`, params.provider);
+  url.searchParams.set(`${PERMALINK_PARAM_PREFIX}repo`, params.repo);
+
+  if (params.ref.trim()) {
+    url.searchParams.set(`${PERMALINK_PARAM_PREFIX}ref`, params.ref);
+  } else {
+    url.searchParams.delete(`${PERMALINK_PARAM_PREFIX}ref`);
+  }
+
+  if (params.subdir.trim()) {
+    url.searchParams.set(`${PERMALINK_PARAM_PREFIX}subdir`, params.subdir);
+  } else {
+    url.searchParams.delete(`${PERMALINK_PARAM_PREFIX}subdir`);
+  }
+
+  if (params.autoBuild) {
+    url.searchParams.set(`${PERMALINK_PARAM_PREFIX}autobuild`, "1");
+  } else {
+    url.searchParams.delete(`${PERMALINK_PARAM_PREFIX}autobuild`);
+  }
+
+  if (params.autoLaunch) {
+    url.searchParams.set(`${PERMALINK_PARAM_PREFIX}autolaunch`, "1");
+  } else {
+    url.searchParams.delete(`${PERMALINK_PARAM_PREFIX}autolaunch`);
+  }
+
+  return url.toString();
+}
+
+function parseBinderPermalink() {
+  const url = new URL(window.location.href);
+  const mode = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}mode`);
+
+  if (mode !== "binder") return null;
+
+  const profileSlug = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}profile`) ?? "";
+  const provider = (url.searchParams.get(`${PERMALINK_PARAM_PREFIX}provider`) ?? "github") as RepoProvider;
+  const repo = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}repo`) ?? "";
+  const ref = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}ref`) ?? "";
+  const subdir = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}subdir`) ?? "";
+  const autoBuild = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}autobuild`) === "1";
+  const autoLaunch = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}autolaunch`) === "1";
+
+  if (!profileSlug || !repo.trim()) return null;
+
+  return {
+    profileSlug,
+    provider,
+    repo,
+    ref,
+    subdir,
+    pendingAction: {
+      autoBuild,
+      autoLaunch,
+    } satisfies PendingPermalinkAction,
+  };
+}
+
+function submitPrimaryForm() {
+  const form = document.querySelector<HTMLFormElement>("form");
+  if (!form) return;
+
+  if (typeof form.requestSubmit === "function") {
+    form.requestSubmit();
+    return;
+  }
+
+  form.submit();
+}
+
+async function copyTextToClipboard(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = value;
+  textArea.setAttribute("readonly", "true");
+  textArea.style.position = "absolute";
+  textArea.style.left = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textArea);
 }
 
 function isBinderProfile(profile: Profile) {
@@ -192,6 +302,24 @@ function EnvironmentCards(props: {
             );
           })}
         </div>
+
+        {/* This turns the environment selector into a dropdown instead of the card list above. */}
+        {false ? (
+          <div className="mt-3">
+            <select
+              className="form-select"
+              value={selectedSlug}
+              onChange={(e) => onSelect(e.target.value)}
+              disabled={disabled}
+            >
+              {profiles.map((profile) => (
+                <option key={profile.slug} value={profile.slug}>
+                  {profile.display_name ?? profile.slug}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -209,7 +337,7 @@ function BinderProfileSelect(props: {
   if (profiles.length === 0) return null;
 
   return (
-    <div className="card mb-3" aria-disabled={disabled}>
+    <div className="card mb-0" aria-disabled={disabled}>
       <div className="card-body">
         <h4 className="mb-1">Environment</h4>
         <div className="text-muted mb-3" style={{ fontSize: "0.95rem" }}>
@@ -365,18 +493,46 @@ function BuildAndLaunch(props: {
   buildState: ReturnType<typeof useBinderBuild>[0];
   buildControls: ReturnType<typeof useBinderBuild>[1];
   repo: { provider: RepoProvider; repo: string; ref: string; subdir: string };
+  selectedBinderProfileSlug: string;
   lockInputs: boolean;
   validationError: string;
   onValidationError: (message: string) => void;
 }) {
-  const { buildState, buildControls, repo, lockInputs, validationError, onValidationError } = props;
+  const {
+    buildState,
+    buildControls,
+    repo,
+    selectedBinderProfileSlug,
+    lockInputs,
+    validationError,
+    onValidationError,
+  } = props;
   const isBuilding = buildState.status === "building";
   const logRef = React.useRef<HTMLPreElement | null>(null);
+  const [copyStatus, setCopyStatus] = React.useState<"idle" | "copied" | "error">("idle");
+
+  const shareLink = React.useMemo(() => {
+    if (!buildState.imageName || !selectedBinderProfileSlug || !repo.repo.trim()) return "";
+
+    return buildBinderPermalink({
+      profileSlug: selectedBinderProfileSlug,
+      provider: repo.provider,
+      repo: repo.repo,
+      ref: repo.ref,
+      subdir: repo.subdir,
+      autoBuild: true,
+      autoLaunch: true,
+    });
+  }, [buildState.imageName, selectedBinderProfileSlug, repo.provider, repo.repo, repo.ref, repo.subdir]);
 
   React.useEffect(() => {
     if (!buildState.logsOpen || !logRef.current) return;
     logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [buildState.logs, buildState.logsOpen]);
+
+  React.useEffect(() => {
+    setCopyStatus("idle");
+  }, [buildState.imageName, repo.provider, repo.repo, repo.ref, repo.subdir, selectedBinderProfileSlug]);
 
   const handleBuildClick = () => {
     if (!repo.repo.trim()) {
@@ -408,7 +564,7 @@ function BuildAndLaunch(props: {
             {isBuilding ? "Building..." : "Build image"}
           </button>
 
-          <button type="button" className="btn btn-outline-secondary" onClick={buildControls.toggleLogs}>
+          <button type="button" className="btn binder-open-logs-button" onClick={buildControls.toggleLogs}>
             {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
 
@@ -437,9 +593,44 @@ function BuildAndLaunch(props: {
             </pre>
 
             {buildState.imageName ? (
-              <div className="mt-2 text-muted" style={{ fontSize: "0.9rem" }}>
-                Built image: <code>{buildState.imageName}</code>
-              </div>
+              <>
+                <div className="mt-2 text-muted" style={{ fontSize: "0.9rem" }}>
+                  Built image: <code>{buildState.imageName}</code>
+                </div>
+
+                {shareLink ? (
+                  <div className="mt-3">
+                    <div className="fw-semibold mb-1">Share link</div>
+                    <div className="text-muted mb-2" style={{ fontSize: "0.9rem" }}>
+                      Anyone who opens this link will land on <code>/hub/spawn</code> with the same Binder inputs
+                      prefilled. The page will automatically rebuild and launch using the selected Binder profile.
+                    </div>
+
+                    <div className="input-group">
+                      <input className="form-control" readOnly value={shareLink} />
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary"
+                        onClick={() => {
+                          copyTextToClipboard(shareLink)
+                            .then(() => setCopyStatus("copied"))
+                            .catch(() => setCopyStatus("error"));
+                        }}
+                      >
+                        Copy link
+                      </button>
+                    </div>
+
+                    {copyStatus === "copied" ? (
+                      <div className="form-text">Share link copied to clipboard.</div>
+                    ) : null}
+
+                    {copyStatus === "error" ? (
+                      <div className="form-text text-danger">Failed to copy the share link.</div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </div>
         ) : null}
@@ -465,10 +656,24 @@ export function App(props: Props) {
   const [environmentSlug, setEnvironmentSlug] = React.useState<string>(defaultEnvironmentSlug);
   const [binderProfileSlug, setBinderProfileSlug] = React.useState<string>(defaultBinderSlug);
   const [binderValidationError, setBinderValidationError] = React.useState<string>("");
+  const [pendingPermalinkAction, setPendingPermalinkAction] = React.useState<PendingPermalinkAction | null>(null);
 
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
   const lockInputs = buildState.status === "building";
+
+  React.useEffect(() => {
+    const parsedPermalink = parseBinderPermalink();
+    if (!parsedPermalink) return;
+
+    setMode("binder");
+    setBinderProfileSlug(parsedPermalink.profileSlug);
+    repoState.setProvider(parsedPermalink.provider);
+    repoState.setRepo(parsedPermalink.repo);
+    repoState.setRef(parsedPermalink.ref);
+    repoState.setSubdir(parsedPermalink.subdir);
+    setPendingPermalinkAction(parsedPermalink.pendingAction);
+  }, []);
 
   const selectedProfileSlug = mode === "binder" && binderProfileSlug ? binderProfileSlug : environmentSlug;
   const selectedBinderProfile = React.useMemo(
@@ -540,15 +745,63 @@ export function App(props: Props) {
     }
   }, [repoState.provider, repoState.repo, repoState.ref, repoState.subdir, mode, buildState.status, buildControls]);
 
+  const hasStartedPermalinkBuildRef = React.useRef(false);
+  const hasSubmittedPermalinkLaunchRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (!pendingPermalinkAction?.autoBuild) return;
+    if (hasStartedPermalinkBuildRef.current) return;
+    if (mode !== "binder") return;
+    if (!selectedBinderProfile) return;
+    if (!repoState.repo.trim()) return;
+    if (buildState.status !== "idle") return;
+
+    hasStartedPermalinkBuildRef.current = true;
+    buildControls.startBuild({
+      provider: repoState.provider,
+      repo: repoState.repo,
+      ref: repoState.ref,
+      subdir: repoState.subdir,
+    });
+  }, [
+    pendingPermalinkAction,
+    mode,
+    selectedBinderProfile,
+    repoState.provider,
+    repoState.repo,
+    repoState.ref,
+    repoState.subdir,
+    buildState.status,
+    buildControls,
+  ]);
+
+  React.useEffect(() => {
+    if (!pendingPermalinkAction?.autoLaunch) return;
+    if (hasSubmittedPermalinkLaunchRef.current) return;
+    if (mode !== "binder") return;
+    if (!selectedBinderProfile) return;
+    if (!buildState.imageName) return;
+
+    hasSubmittedPermalinkLaunchRef.current = true;
+    submitPrimaryForm();
+  }, [pendingPermalinkAction, mode, selectedBinderProfile, buildState.imageName]);
+
+
   const handleModeChange = (nextMode: UIMode) => {
     setMode(nextMode);
     setBinderValidationError("");
+    setPendingPermalinkAction(null);
+    hasStartedPermalinkBuildRef.current = false;
+    hasSubmittedPermalinkLaunchRef.current = false;
     buildControls.reset();
   };
 
   const handleBinderProfileChange = (nextProfileSlug: string) => {
     setBinderProfileSlug(nextProfileSlug);
     setBinderValidationError("");
+    setPendingPermalinkAction(null);
+    hasStartedPermalinkBuildRef.current = false;
+    hasSubmittedPermalinkLaunchRef.current = false;
     buildControls.reset();
   };
 
@@ -556,6 +809,10 @@ export function App(props: Props) {
     if (binderValidationError) {
       setBinderValidationError("");
     }
+
+    setPendingPermalinkAction(null);
+    hasStartedPermalinkBuildRef.current = false;
+    hasSubmittedPermalinkLaunchRef.current = false;
   };
 
   return (
@@ -592,6 +849,7 @@ export function App(props: Props) {
               ref: repoState.ref,
               subdir: repoState.subdir,
             }}
+            selectedBinderProfileSlug={binderProfileSlug}
             lockInputs={lockInputs}
             validationError={binderValidationError}
             onValidationError={setBinderValidationError}
