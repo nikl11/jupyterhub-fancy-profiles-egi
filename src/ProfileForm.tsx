@@ -561,7 +561,7 @@ function BuildAndLaunch(props: {
             onClick={handleBuildClick}
             disabled={lockInputs || isBuilding}
           >
-            {buildState.logsOpen ? "Close logs" : "Open logs"}
+            {isBuilding ? "Building..." : "Build image"}
           </button>
 
           <button type="button" className="btn btn-outline-secondary" onClick={buildControls.toggleLogs}>
