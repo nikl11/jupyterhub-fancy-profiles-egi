@@ -337,7 +337,7 @@ function BinderProfileSelect(props: {
   if (profiles.length === 0) return null;
 
   return (
-    <div className="card mb-0" aria-disabled={disabled}>
+    <div className="card mb-3" aria-disabled={disabled}>
       <div className="card-body">
         <h4 className="mb-1">Environment</h4>
         <div className="text-muted mb-3" style={{ fontSize: "0.95rem" }}>
@@ -557,13 +557,14 @@ function BuildAndLaunch(props: {
         <div className="d-flex gap-2 align-items-center flex-wrap">
           <button
             type="button"
-            className="btn btn-outline-secondary"
-            onClick={buildControls.toggleLogs}
+            className="btn btn-primary"
+            onClick={handleBuildClick}
+            disabled={lockInputs || isBuilding}
           >
             {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
 
-          <button type="button" className="btn binder-open-logs-button" onClick={buildControls.toggleLogs}>
+          <button type="button" className="btn btn-outline-secondary" onClick={buildControls.toggleLogs}>
             {buildState.logsOpen ? "Close logs" : "Open logs"}
           </button>
 
