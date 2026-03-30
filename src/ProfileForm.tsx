@@ -77,93 +77,40 @@ function setPrimarySubmitButtonDisabled(disabled: boolean) {
   btn.setAttribute("aria-disabled", disabled ? "true" : "false");
 }
 
-type BinderPermalinkParams = {
+function isBinderProfile(profile: Profile) {
+  const slug = (profile.slug ?? "").toLowerCase();
+  const displayName = (profile.display_name ?? "").toLowerCase();
+  const hasDynamicImageBuilding = Boolean(profile.profile_options?.image?.dynamic_image_building?.enabled);
+
+  return hasDynamicImageBuilding || slug.startsWith("binder") || displayName.includes("binder");
+}
+
+function getDefaultBinderProfileSlug(profiles: Profile[]) {
+  return profiles.find((profile) => profile.default)?.slug ?? profiles[0]?.slug ?? "";
+}
+
+function buildPreviewShareLink(params: {
   provider: RepoProvider;
   repo: string;
   ref: string;
   subdir: string;
-  autoBuild?: boolean;
-  autoLaunch?: boolean;
-};
-
-type PendingPermalinkAction = {
-  autoBuild: boolean;
-  autoLaunch: boolean;
-};
-
-const PERMALINK_PARAM_PREFIX = "fp_";
-
-function buildBinderPermalink(params: BinderPermalinkParams) {
+}) {
   const url = new URL(window.location.href);
 
-  url.searchParams.set(`${PERMALINK_PARAM_PREFIX}mode`, "binder");
-  url.searchParams.set(`${PERMALINK_PARAM_PREFIX}provider`, params.provider);
-  url.searchParams.set(`${PERMALINK_PARAM_PREFIX}repo`, params.repo);
+  url.search = "";
+  url.searchParams.set("fp_mode", "binder");
+  url.searchParams.set("fp_provider", params.provider);
+  url.searchParams.set("fp_repo", params.repo);
 
   if (params.ref.trim()) {
-    url.searchParams.set(`${PERMALINK_PARAM_PREFIX}ref`, params.ref);
-  } else {
-    url.searchParams.delete(`${PERMALINK_PARAM_PREFIX}ref`);
+    url.searchParams.set("fp_ref", params.ref);
   }
 
   if (params.subdir.trim()) {
-    url.searchParams.set(`${PERMALINK_PARAM_PREFIX}subdir`, params.subdir);
-  } else {
-    url.searchParams.delete(`${PERMALINK_PARAM_PREFIX}subdir`);
-  }
-
-  if (params.autoBuild) {
-    url.searchParams.set(`${PERMALINK_PARAM_PREFIX}autobuild`, "1");
-  } else {
-    url.searchParams.delete(`${PERMALINK_PARAM_PREFIX}autobuild`);
-  }
-
-  if (params.autoLaunch) {
-    url.searchParams.set(`${PERMALINK_PARAM_PREFIX}autolaunch`, "1");
-  } else {
-    url.searchParams.delete(`${PERMALINK_PARAM_PREFIX}autolaunch`);
+    url.searchParams.set("fp_subdir", params.subdir);
   }
 
   return url.toString();
-}
-
-function parseBinderPermalink() {
-  const url = new URL(window.location.href);
-  const mode = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}mode`);
-
-  if (mode !== "binder") return null;
-
-  const provider = (url.searchParams.get(`${PERMALINK_PARAM_PREFIX}provider`) ?? "github") as RepoProvider;
-  const repo = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}repo`) ?? "";
-  const ref = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}ref`) ?? "";
-  const subdir = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}subdir`) ?? "";
-  const autoBuild = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}autobuild`) === "1";
-  const autoLaunch = url.searchParams.get(`${PERMALINK_PARAM_PREFIX}autolaunch`) === "1";
-
-  if (!repo.trim()) return null;
-
-  return {
-    provider,
-    repo,
-    ref,
-    subdir,
-    pendingAction: {
-      autoBuild,
-      autoLaunch,
-    } satisfies PendingPermalinkAction,
-  };
-}
-
-function submitPrimaryForm() {
-  const form = document.querySelector<HTMLFormElement>("form");
-  if (!form) return;
-
-  if (typeof form.requestSubmit === "function") {
-    form.requestSubmit();
-    return;
-  }
-
-  form.submit();
 }
 
 async function copyTextToClipboard(value: string) {
@@ -181,18 +128,6 @@ async function copyTextToClipboard(value: string) {
   textArea.select();
   document.execCommand("copy");
   document.body.removeChild(textArea);
-}
-
-function isBinderProfile(profile: Profile) {
-  const slug = (profile.slug ?? "").toLowerCase();
-  const displayName = (profile.display_name ?? "").toLowerCase();
-  const hasDynamicImageBuilding = Boolean(profile.profile_options?.image?.dynamic_image_building?.enabled);
-
-  return hasDynamicImageBuilding || slug.startsWith("binder") || displayName.includes("binder");
-}
-
-function getDefaultBinderProfileSlug(profiles: Profile[]) {
-  return profiles.find((profile) => profile.default)?.slug ?? profiles[0]?.slug ?? "";
 }
 
 function ModeToggle(props: {
@@ -485,6 +420,60 @@ function RepositoryForm(props: {
   );
 }
 
+function ShareLinkCard(props: {
+  repo: { provider: RepoProvider; repo: string; ref: string; subdir: string };
+  disabled: boolean;
+}) {
+  const { repo, disabled } = props;
+  const [copyStatus, setCopyStatus] = React.useState<"idle" | "copied" | "error">("idle");
+
+  const shareLink = React.useMemo(() => {
+    return buildPreviewShareLink({
+      provider: repo.provider,
+      repo: repo.repo.trim(),
+      ref: repo.ref.trim(),
+      subdir: repo.subdir.trim(),
+    });
+  }, [repo.provider, repo.repo, repo.ref, repo.subdir]);
+
+  React.useEffect(() => {
+    setCopyStatus("idle");
+  }, [shareLink]);
+
+  return (
+    <div className="card mb-3" aria-disabled={disabled}>
+      <div className="card-body">
+        <h4 className="mb-2">Share link</h4>
+        <div className="text-muted mb-3" style={{ fontSize: "0.95rem" }}>
+          Preview of the Binder share link. This only adds the card and the generated URL for now. The actual share
+          workflow will be wired later.
+        </div>
+
+        <div className="input-group">
+          <input className="form-control" readOnly value={shareLink} />
+          <button
+            type="button"
+            className="btn btn-outline-secondary"
+            disabled={disabled}
+            onClick={() => {
+              copyTextToClipboard(shareLink)
+                .then(() => setCopyStatus("copied"))
+                .catch(() => setCopyStatus("error"));
+            }}
+          >
+            Copy link
+          </button>
+        </div>
+
+        {copyStatus === "copied" ? <div className="form-text">Share link copied to clipboard.</div> : null}
+        {copyStatus === "error" ? (
+          <div className="form-text text-danger">Failed to copy the share link.</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function BuildAndLaunch(props: {
   buildState: ReturnType<typeof useBinderBuild>[0];
   buildControls: ReturnType<typeof useBinderBuild>[1];
@@ -496,29 +485,11 @@ function BuildAndLaunch(props: {
   const { buildState, buildControls, repo, lockInputs, validationError, onValidationError } = props;
   const isBuilding = buildState.status === "building";
   const logRef = React.useRef<HTMLPreElement | null>(null);
-  const [copyStatus, setCopyStatus] = React.useState<"idle" | "copied" | "error">("idle");
-
-  const shareLink = React.useMemo(() => {
-    if (!buildState.imageName || !repo.repo.trim()) return "";
-
-    return buildBinderPermalink({
-      provider: repo.provider,
-      repo: repo.repo,
-      ref: repo.ref,
-      subdir: repo.subdir,
-      autoBuild: true,
-      autoLaunch: true,
-    });
-  }, [buildState.imageName, repo.provider, repo.repo, repo.ref, repo.subdir]);
 
   React.useEffect(() => {
     if (!buildState.logsOpen || !logRef.current) return;
     logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [buildState.logs, buildState.logsOpen]);
-
-  React.useEffect(() => {
-    setCopyStatus("idle");
-  }, [buildState.imageName, repo.provider, repo.repo, repo.ref, repo.subdir]);
 
   const handleBuildClick = () => {
     if (!repo.repo.trim()) {
@@ -579,44 +550,9 @@ function BuildAndLaunch(props: {
             </pre>
 
             {buildState.imageName ? (
-              <>
-                <div className="mt-2 text-muted" style={{ fontSize: "0.9rem" }}>
-                  Built image: <code>{buildState.imageName}</code>
-                </div>
-
-                {shareLink ? (
-                  <div className="mt-3">
-                    <div className="fw-semibold mb-1">Share link</div>
-                    <div className="text-muted mb-2" style={{ fontSize: "0.9rem" }}>
-                      Anyone who opens this link will land on <code>/hub/spawn</code> with the same Binder inputs
-                      prefilled. The page will automatically rebuild and launch using the default Binder profile.
-                    </div>
-
-                    <div className="input-group">
-                      <input className="form-control" readOnly value={shareLink} />
-                      <button
-                        type="button"
-                        className="btn btn-outline-secondary"
-                        onClick={() => {
-                          copyTextToClipboard(shareLink)
-                            .then(() => setCopyStatus("copied"))
-                            .catch(() => setCopyStatus("error"));
-                        }}
-                      >
-                        Copy link
-                      </button>
-                    </div>
-
-                    {copyStatus === "copied" ? (
-                      <div className="form-text">Share link copied to clipboard.</div>
-                    ) : null}
-
-                    {copyStatus === "error" ? (
-                      <div className="form-text text-danger">Failed to copy the share link.</div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </>
+              <div className="mt-2 text-muted" style={{ fontSize: "0.9rem" }}>
+                Built image: <code>{buildState.imageName}</code>
+              </div>
             ) : null}
           </div>
         ) : null}
@@ -642,29 +578,10 @@ export function App(props: Props) {
   const [environmentSlug, setEnvironmentSlug] = React.useState<string>(defaultEnvironmentSlug);
   const [binderProfileSlug, setBinderProfileSlug] = React.useState<string>(defaultBinderSlug);
   const [binderValidationError, setBinderValidationError] = React.useState<string>("");
-  const [pendingPermalinkAction, setPendingPermalinkAction] = React.useState<PendingPermalinkAction | null>(null);
 
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
   const lockInputs = buildState.status === "building";
-
-  const hasAppliedPermalinkRef = React.useRef(false);
-
-  React.useEffect(() => {
-    if (hasAppliedPermalinkRef.current) return;
-
-    const parsedPermalink = parseBinderPermalink();
-    if (!parsedPermalink) return;
-
-    hasAppliedPermalinkRef.current = true;
-    setMode("binder");
-    setBinderProfileSlug(defaultBinderSlug);
-    repoState.setProvider(parsedPermalink.provider);
-    repoState.setRepo(parsedPermalink.repo);
-    repoState.setRef(parsedPermalink.ref);
-    repoState.setSubdir(parsedPermalink.subdir);
-    setPendingPermalinkAction(parsedPermalink.pendingAction);
-  }, [defaultBinderSlug, repoState]);
 
   const selectedProfileSlug = mode === "binder" && binderProfileSlug ? binderProfileSlug : environmentSlug;
   const selectedBinderProfile = React.useMemo(
@@ -736,63 +653,15 @@ export function App(props: Props) {
     }
   }, [repoState.provider, repoState.repo, repoState.ref, repoState.subdir, mode, buildState.status, buildControls]);
 
-  const hasStartedPermalinkBuildRef = React.useRef(false);
-  const hasSubmittedPermalinkLaunchRef = React.useRef(false);
-
-  React.useEffect(() => {
-    if (!pendingPermalinkAction?.autoBuild) return;
-    if (hasStartedPermalinkBuildRef.current) return;
-    if (mode !== "binder") return;
-    if (!selectedBinderProfile) return;
-    if (!repoState.repo.trim()) return;
-    if (buildState.status !== "idle") return;
-
-    hasStartedPermalinkBuildRef.current = true;
-    buildControls.startBuild({
-      provider: repoState.provider,
-      repo: repoState.repo,
-      ref: repoState.ref,
-      subdir: repoState.subdir,
-    });
-  }, [
-    pendingPermalinkAction,
-    mode,
-    selectedBinderProfile,
-    repoState.provider,
-    repoState.repo,
-    repoState.ref,
-    repoState.subdir,
-    buildState.status,
-    buildControls,
-  ]);
-
-  React.useEffect(() => {
-    if (!pendingPermalinkAction?.autoLaunch) return;
-    if (hasSubmittedPermalinkLaunchRef.current) return;
-    if (mode !== "binder") return;
-    if (!selectedBinderProfile) return;
-    if (!buildState.imageName) return;
-
-    hasSubmittedPermalinkLaunchRef.current = true;
-    submitPrimaryForm();
-  }, [pendingPermalinkAction, mode, selectedBinderProfile, buildState.imageName]);
-
-
   const handleModeChange = (nextMode: UIMode) => {
     setMode(nextMode);
     setBinderValidationError("");
-    setPendingPermalinkAction(null);
-    hasStartedPermalinkBuildRef.current = false;
-    hasSubmittedPermalinkLaunchRef.current = false;
     buildControls.reset();
   };
 
   const handleBinderProfileChange = (nextProfileSlug: string) => {
     setBinderProfileSlug(nextProfileSlug);
     setBinderValidationError("");
-    setPendingPermalinkAction(null);
-    hasStartedPermalinkBuildRef.current = false;
-    hasSubmittedPermalinkLaunchRef.current = false;
     buildControls.reset();
   };
 
@@ -800,10 +669,6 @@ export function App(props: Props) {
     if (binderValidationError) {
       setBinderValidationError("");
     }
-
-    setPendingPermalinkAction(null);
-    hasStartedPermalinkBuildRef.current = false;
-    hasSubmittedPermalinkLaunchRef.current = false;
   };
 
   return (
@@ -829,6 +694,16 @@ export function App(props: Props) {
             disabled={lockInputs}
             validationError={binderValidationError}
             onRepositoryInputChange={handleRepositoryInputChange}
+          />
+
+          <ShareLinkCard
+            repo={{
+              provider: repoState.provider,
+              repo: repoState.repo,
+              ref: repoState.ref,
+              subdir: repoState.subdir,
+            }}
+            disabled={lockInputs}
           />
 
           <BuildAndLaunch
