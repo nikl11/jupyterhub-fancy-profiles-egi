@@ -109,10 +109,7 @@ function buildPreviewShareLink(params: {
   url.search = "";
   url.searchParams.set("mode", "binder");
   url.searchParams.set("provider", params.provider);
-
-  if (repo) {
-    url.searchParams.set("repo", repo);
-  }
+  url.searchParams.set("repo", repo);
 
   if (ref) {
     url.searchParams.set("ref", ref);
@@ -125,6 +122,49 @@ function buildPreviewShareLink(params: {
   url.searchParams.set("env", String(params.environmentNumber));
 
   return url.toString();
+}
+
+type ShareLinkParams = {
+  provider: RepoProvider;
+  repo: string;
+  ref: string;
+  subdir: string;
+  environmentNumber: number;
+};
+
+function parseShareLinkParams() {
+  const url = new URL(window.location.href);
+
+  if (url.searchParams.get("mode") !== "binder") {
+    return null;
+  }
+
+  const repo = (url.searchParams.get("repo") ?? "").trim();
+  if (!repo) {
+    return null;
+  }
+
+  const environmentNumber = Number(url.searchParams.get("env") ?? "1");
+
+  return {
+    provider: (url.searchParams.get("provider") ?? "github") as RepoProvider,
+    repo,
+    ref: url.searchParams.get("ref") ?? "",
+    subdir: url.searchParams.get("subdir") ?? "",
+    environmentNumber: Number.isFinite(environmentNumber) && environmentNumber > 0 ? environmentNumber : 1,
+  };
+}
+
+function submitPrimaryForm() {
+  const form = document.querySelector<HTMLFormElement>("form");
+  if (!form) return;
+
+  if (typeof form.requestSubmit === "function") {
+    form.requestSubmit();
+    return;
+  }
+
+  form.submit();
 }
 
 async function copyTextToClipboard(value: string) {
@@ -248,23 +288,6 @@ function EnvironmentCards(props: {
           })}
         </div>
 
-        {/* This turns the environment selector into a dropdown instead of the card list above. */}
-        {false ? (
-          <div className="mt-3">
-            <select
-              className="form-select"
-              value={selectedSlug}
-              onChange={(e) => onSelect(e.target.value)}
-              disabled={disabled}
-            >
-              {profiles.map((profile) => (
-                <option key={profile.slug} value={profile.slug}>
-                  {profile.display_name ?? profile.slug}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
       </div>
     </div>
   );
@@ -618,22 +641,49 @@ export function App(props: Props) {
   const [environmentSlug, setEnvironmentSlug] = React.useState<string>(defaultEnvironmentSlug);
   const [binderProfileSlug, setBinderProfileSlug] = React.useState<string>(defaultBinderSlug);
   const [binderValidationError, setBinderValidationError] = React.useState<string>("");
+  const [pendingShareLaunch, setPendingShareLaunch] = React.useState(false);
 
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
   const lockInputs = buildState.status === "building";
+  const { setProvider, setRepo, setRef, setSubdir } = repoState;
+
+  const hasAppliedShareLinkRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (hasAppliedShareLinkRef.current) return;
+
+    const shareLinkParams = parseShareLinkParams();
+    if (!shareLinkParams) return;
+    if (binderProfiles.length === 0) return;
+
+    hasAppliedShareLinkRef.current = true;
+    setMode("binder");
+    setProvider(shareLinkParams.provider);
+    setRepo(shareLinkParams.repo);
+    setRef(shareLinkParams.ref);
+    setSubdir(shareLinkParams.subdir);
+
+    const environmentIndex = Math.min(
+      Math.max(shareLinkParams.environmentNumber - 1, 0),
+      Math.max(binderProfiles.length - 1, 0)
+    );
+
+    setBinderProfileSlug(binderProfiles[environmentIndex]?.slug ?? defaultBinderSlug);
+    setPendingShareLaunch(true);
+  }, [binderProfiles, defaultBinderSlug, setProvider, setRepo, setRef, setSubdir]);
 
   const selectedProfileSlug = mode === "binder" && binderProfileSlug ? binderProfileSlug : environmentSlug;
   const selectedBinderProfile = React.useMemo(
     () => binderProfiles.find((profile) => profile.slug === binderProfileSlug) ?? null,
     [binderProfiles, binderProfileSlug]
   );
-
   const selectedBinderEnvironmentNumber = React.useMemo(() => {
     const binderProfileIndex = binderProfiles.findIndex((profile) => profile.slug === binderProfileSlug);
     return binderProfileIndex >= 0 ? binderProfileIndex + 1 : 1;
   }, [binderProfiles, binderProfileSlug]);
-  const binderLaunchDisabled = mode === "binder" && (!selectedBinderProfile || lockInputs || !buildState.imageName);
+  const binderLaunchDisabled =
+    mode === "binder" && !pendingShareLaunch && (!selectedBinderProfile || lockInputs || !buildState.imageName);
 
   React.useEffect(() => {
     renamePrimarySubmitButton("Launch");
@@ -675,6 +725,32 @@ export function App(props: Props) {
     ensureFormField(imageUnlistedField, buildState.imageName);
   }, [mode, selectedBinderProfile, buildState.imageName]);
 
+  React.useEffect(() => {
+    if (!pendingShareLaunch) return;
+    if (mode !== "binder") return;
+    if (!selectedBinderProfile) return;
+    if (!repoState.repo.trim()) return;
+
+    ensureFormField("share_mode", "binder");
+    ensureFormField("share_provider", repoState.provider);
+    ensureFormField("share_repo", repoState.repo.trim());
+    ensureFormField("share_ref", repoState.ref.trim());
+    ensureFormField("share_subdir", repoState.subdir.trim());
+    ensureFormField("share_env", String(selectedBinderEnvironmentNumber));
+
+    setPendingShareLaunch(false);
+    submitPrimaryForm();
+  }, [
+    pendingShareLaunch,
+    mode,
+    selectedBinderProfile,
+    repoState.provider,
+    repoState.repo,
+    repoState.ref,
+    repoState.subdir,
+    selectedBinderEnvironmentNumber,
+  ]);
+
   const previousRepoSignature = React.useRef<string>("");
 
   React.useEffect(() => {
@@ -701,12 +777,14 @@ export function App(props: Props) {
   const handleModeChange = (nextMode: UIMode) => {
     setMode(nextMode);
     setBinderValidationError("");
+    setPendingShareLaunch(false);
     buildControls.reset();
   };
 
   const handleBinderProfileChange = (nextProfileSlug: string) => {
     setBinderProfileSlug(nextProfileSlug);
     setBinderValidationError("");
+    setPendingShareLaunch(false);
     buildControls.reset();
   };
 
@@ -714,6 +792,8 @@ export function App(props: Props) {
     if (binderValidationError) {
       setBinderValidationError("");
     }
+
+    setPendingShareLaunch(false);
   };
 
   return (
