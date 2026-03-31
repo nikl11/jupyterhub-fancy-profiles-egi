@@ -94,21 +94,35 @@ function buildPreviewShareLink(params: {
   repo: string;
   ref: string;
   subdir: string;
+  environmentNumber: number;
 }) {
+  const repo = params.repo.trim();
+  const ref = params.ref.trim();
+  const subdir = params.subdir.trim();
+
+  if (!repo && !ref && !subdir) {
+    return "";
+  }
+
   const url = new URL(window.location.href);
 
   url.search = "";
-  url.searchParams.set("fp_mode", "binder");
-  url.searchParams.set("fp_provider", params.provider);
-  url.searchParams.set("fp_repo", params.repo);
+  url.searchParams.set("mode", "binder");
+  url.searchParams.set("provider", params.provider);
 
-  if (params.ref.trim()) {
-    url.searchParams.set("fp_ref", params.ref);
+  if (repo) {
+    url.searchParams.set("repo", repo);
   }
 
-  if (params.subdir.trim()) {
-    url.searchParams.set("fp_subdir", params.subdir);
+  if (ref) {
+    url.searchParams.set("ref", ref);
   }
+
+  if (subdir) {
+    url.searchParams.set("subdir", subdir);
+  }
+
+  url.searchParams.set("env", String(params.environmentNumber));
 
   return url.toString();
 }
@@ -422,46 +436,67 @@ function RepositoryForm(props: {
 
 function ShareLinkCard(props: {
   repo: { provider: RepoProvider; repo: string; ref: string; subdir: string };
+  environmentNumber: number;
   disabled: boolean;
 }) {
-  const { repo, disabled } = props;
+  const { repo, environmentNumber, disabled } = props;
   const [copyStatus, setCopyStatus] = React.useState<"idle" | "copied" | "error">("idle");
 
   const shareLink = React.useMemo(() => {
     return buildPreviewShareLink({
       provider: repo.provider,
-      repo: repo.repo.trim(),
-      ref: repo.ref.trim(),
-      subdir: repo.subdir.trim(),
+      repo: repo.repo,
+      ref: repo.ref,
+      subdir: repo.subdir,
+      environmentNumber,
     });
-  }, [repo.provider, repo.repo, repo.ref, repo.subdir]);
+  }, [repo.provider, repo.repo, repo.ref, repo.subdir, environmentNumber]);
 
   React.useEffect(() => {
     setCopyStatus("idle");
   }, [shareLink]);
+
+  const hasShareLink = Boolean(shareLink);
 
   return (
     <div className="card mb-3" aria-disabled={disabled}>
       <div className="card-body">
         <h4 className="mb-2">Share link</h4>
         <div className="text-muted mb-3" style={{ fontSize: "0.95rem" }}>
-          Preview of the Binder share link. This only adds the card and the generated URL for now. The actual share
-          workflow will be wired later.
+          Copy a Binder share URL based on the current repository inputs and the selected Binder environment.
         </div>
 
         <div className="input-group">
-          <input className="form-control" readOnly value={shareLink} />
+          <input
+            className="form-control"
+            readOnly
+            value={shareLink}
+            placeholder="Fill in the fields to see a URL for sharing your Binder."
+          />
           <button
             type="button"
             className="btn btn-outline-secondary"
-            disabled={disabled}
+            disabled={disabled || !hasShareLink}
+            aria-label="Copy share link"
+            title="Copy share link"
             onClick={() => {
+              if (!shareLink) return;
+
               copyTextToClipboard(shareLink)
                 .then(() => setCopyStatus("copied"))
                 .catch(() => setCopyStatus("error"));
             }}
           >
-            Copy link
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M10 1.5a1.5 1.5 0 0 1 1.5 1.5v1H10a2 2 0 0 0-2 2v5H5A1.5 1.5 0 0 1 3.5 9.5V3A1.5 1.5 0 0 1 5 1.5h5Zm1.5 4H10A1.5 1.5 0 0 0 8.5 7v5A1.5 1.5 0 0 0 10 13.5h3A1.5 1.5 0 0 0 14.5 12V7A1.5 1.5 0 0 0 13 5.5h-1.5Zm-1-1.5V3A2.5 2.5 0 0 0 8 0.5H5A2.5 2.5 0 0 0 2.5 3v6.5A2.5 2.5 0 0 0 5 12h3v.5A2.5 2.5 0 0 0 10.5 15H13a2.5 2.5 0 0 0 2.5-2.5V7A2.5 2.5 0 0 0 13 4.5h-2.5Z" />
+            </svg>
           </button>
         </div>
 
@@ -588,6 +623,11 @@ export function App(props: Props) {
     () => binderProfiles.find((profile) => profile.slug === binderProfileSlug) ?? null,
     [binderProfiles, binderProfileSlug]
   );
+
+  const selectedBinderEnvironmentNumber = React.useMemo(() => {
+    const binderProfileIndex = binderProfiles.findIndex((profile) => profile.slug === binderProfileSlug);
+    return binderProfileIndex >= 0 ? binderProfileIndex + 1 : 1;
+  }, [binderProfiles, binderProfileSlug]);
   const binderLaunchDisabled = mode === "binder" && (!selectedBinderProfile || lockInputs || !buildState.imageName);
 
   React.useEffect(() => {
@@ -703,6 +743,7 @@ export function App(props: Props) {
               ref: repoState.ref,
               subdir: repoState.subdir,
             }}
+            environmentNumber={selectedBinderEnvironmentNumber}
             disabled={lockInputs}
           />
 
