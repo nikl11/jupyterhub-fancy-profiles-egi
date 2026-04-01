@@ -149,15 +149,11 @@ function buildPreviewShareLink(params: {
     return "";
   }
 
-  const url = new URL(window.location.href);
+  const url = new URL("/hub/spawn", window.location.origin);
 
-  url.search = "";
   url.searchParams.set("mode", "binder");
   url.searchParams.set("provider", params.provider);
-
-  if (repo) {
-    url.searchParams.set("repo", repo);
-  }
+  url.searchParams.set("repo", repo);
 
   if (ref) {
     url.searchParams.set("ref", ref);
