@@ -89,40 +89,6 @@ function getDefaultBinderProfileSlug(profiles: Profile[]) {
   return profiles.find((profile) => profile.default)?.slug ?? profiles[0]?.slug ?? "";
 }
 
-function buildPreviewShareLink(params: {
-  provider: RepoProvider;
-  repo: string;
-  ref: string;
-  subdir: string;
-  environmentNumber: number;
-}) {
-  const repo = params.repo.trim();
-  const ref = params.ref.trim();
-  const subdir = params.subdir.trim();
-
-  if (!repo) {
-    return "";
-  }
-
-  const baseUrl = new URL("/hub/spawn", window.location.origin);
-
-  baseUrl.searchParams.set("mode", "binder");
-  baseUrl.searchParams.set("provider", params.provider);
-  baseUrl.searchParams.set("repo", repo);
-
-  if (ref) {
-    baseUrl.searchParams.set("ref", ref);
-  }
-
-  if (subdir) {
-    baseUrl.searchParams.set("subdir", subdir);
-  }
-
-  baseUrl.searchParams.set("env", String(params.environmentNumber));
-
-  return baseUrl.toString();
-}
-
 type ShareLinkParams = {
   provider: RepoProvider;
   repo: string;
@@ -130,6 +96,8 @@ type ShareLinkParams = {
   subdir: string;
   environmentNumber: number;
 };
+
+type AutoRunPhase = "idle" | "prefilled" | "building" | "built" | "launching" | "error";
 
 function parseShareLinkParams() {
   const url = new URL(window.location.href);
@@ -164,6 +132,44 @@ function submitPrimaryForm() {
   }
 
   form.submit();
+}
+
+function buildPreviewShareLink(params: {
+  provider: RepoProvider;
+  repo: string;
+  ref: string;
+  subdir: string;
+  environmentNumber: number;
+}) {
+  const repo = params.repo.trim();
+  const ref = params.ref.trim();
+  const subdir = params.subdir.trim();
+
+  if (!repo) {
+    return "";
+  }
+
+  const url = new URL(window.location.href);
+
+  url.search = "";
+  url.searchParams.set("mode", "binder");
+  url.searchParams.set("provider", params.provider);
+
+  if (repo) {
+    url.searchParams.set("repo", repo);
+  }
+
+  if (ref) {
+    url.searchParams.set("ref", ref);
+  }
+
+  if (subdir) {
+    url.searchParams.set("subdir", subdir);
+  }
+
+  url.searchParams.set("env", String(params.environmentNumber));
+
+  return url.toString();
 }
 
 async function copyTextToClipboard(value: string) {
@@ -460,8 +466,9 @@ function ShareLinkCard(props: {
   repo: { provider: RepoProvider; repo: string; ref: string; subdir: string };
   environmentNumber: number;
   disabled: boolean;
+  autoRunPhase: AutoRunPhase;
 }) {
-  const { repo, environmentNumber, disabled } = props;
+  const { repo, environmentNumber, disabled, autoRunPhase } = props;
   const [copyStatus, setCopyStatus] = React.useState<"idle" | "copied" | "error">("idle");
 
   const shareLink = React.useMemo(() => {
@@ -527,6 +534,11 @@ function ShareLinkCard(props: {
           </button>
         </div>
 
+        {autoRunPhase !== "idle" && autoRunPhase !== "error" ? (
+          <div className="form-text">
+            Share link autorun is in progress. Repository inputs are temporarily locked while Binder builds and launches the image.
+          </div>
+        ) : null}
         {copyStatus === "copied" ? <div className="form-text">Share link copied to clipboard.</div> : null}
         {copyStatus === "error" ? (
           <div className="form-text text-danger">Failed to copy the share link.</div>
@@ -640,15 +652,15 @@ export function App(props: Props) {
   const [environmentSlug, setEnvironmentSlug] = React.useState<string>(defaultEnvironmentSlug);
   const [binderProfileSlug, setBinderProfileSlug] = React.useState<string>(defaultBinderSlug);
   const [binderValidationError, setBinderValidationError] = React.useState<string>("");
-  const [pendingShareBuild, setPendingShareBuild] = React.useState(false);
-  const [pendingShareLaunch, setPendingShareLaunch] = React.useState(false);
+  const [autoRunPhase, setAutoRunPhase] = React.useState<AutoRunPhase>("idle");
 
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
-  const lockInputs = buildState.status === "building";
-
   const { setProvider, setRepo, setRef, setSubdir } = repoState;
+
   const hasAppliedShareLinkRef = React.useRef(false);
+  const hasOpenedLogsForAutoRunRef = React.useRef(false);
+  const hasSubmittedLaunchRef = React.useRef(false);
 
   React.useEffect(() => {
     if (hasAppliedShareLinkRef.current) return;
@@ -670,9 +682,10 @@ export function App(props: Props) {
     );
 
     setBinderProfileSlug(binderProfiles[environmentIndex]?.slug ?? defaultBinderSlug);
-    setPendingShareBuild(true);
-    setPendingShareLaunch(true);
+    setAutoRunPhase("prefilled");
   }, [binderProfiles, defaultBinderSlug, setProvider, setRepo, setRef, setSubdir]);
+
+  const lockInputs = buildState.status === "building" || autoRunPhase === "prefilled" || autoRunPhase === "launching";
 
   const selectedProfileSlug = mode === "binder" && binderProfileSlug ? binderProfileSlug : environmentSlug;
   const selectedBinderProfile = React.useMemo(
@@ -685,43 +698,8 @@ export function App(props: Props) {
     return binderProfileIndex >= 0 ? binderProfileIndex + 1 : 1;
   }, [binderProfiles, binderProfileSlug]);
   const binderLaunchDisabled =
-    mode === "binder" && (!selectedBinderProfile || lockInputs || (!buildState.imageName && !pendingShareBuild));
-
-  React.useEffect(() => {
-    if (!pendingShareBuild) return;
-    if (mode !== "binder") return;
-    if (!selectedBinderProfile) return;
-    if (!repoState.repo.trim()) return;
-    if (buildState.status !== "idle") return;
-
-    buildControls.startBuild({
-      provider: repoState.provider,
-      repo: repoState.repo,
-      ref: repoState.ref,
-      subdir: repoState.subdir,
-    });
-  }, [
-    pendingShareBuild,
-    mode,
-    selectedBinderProfile,
-    repoState.provider,
-    repoState.repo,
-    repoState.ref,
-    repoState.subdir,
-    buildState.status,
-    buildControls,
-  ]);
-
-  React.useEffect(() => {
-    if (!pendingShareLaunch) return;
-    if (mode !== "binder") return;
-    if (!selectedBinderProfile) return;
-    if (!buildState.imageName) return;
-
-    setPendingShareBuild(false);
-    setPendingShareLaunch(false);
-    submitPrimaryForm();
-  }, [pendingShareLaunch, mode, selectedBinderProfile, buildState.imageName]);
+    mode === "binder" &&
+    (!selectedBinderProfile || lockInputs || (autoRunPhase !== "launching" && !buildState.imageName));
 
   React.useEffect(() => {
     renamePrimarySubmitButton("Launch");
@@ -759,9 +737,80 @@ export function App(props: Props) {
     const imageChoiceField = `profile-option-${selectedBinderProfile.slug}--image`;
     const imageUnlistedField = `profile-option-${selectedBinderProfile.slug}--image--unlisted-choice`;
 
+    ensureFormField("profile", selectedBinderProfile.slug);
     ensureFormField(imageChoiceField, "unlisted_choice");
     ensureFormField(imageUnlistedField, buildState.imageName);
   }, [mode, selectedBinderProfile, buildState.imageName]);
+
+  React.useEffect(() => {
+    if (autoRunPhase !== "prefilled") return;
+    if (mode !== "binder") return;
+    if (!selectedBinderProfile) return;
+    if (!repoState.repo.trim()) return;
+    if (buildState.status !== "idle") return;
+
+    if (!buildState.logsOpen && !hasOpenedLogsForAutoRunRef.current) {
+      hasOpenedLogsForAutoRunRef.current = true;
+      buildControls.toggleLogs();
+    }
+
+    setAutoRunPhase("building");
+    buildControls.startBuild({
+      provider: repoState.provider,
+      repo: repoState.repo,
+      ref: repoState.ref,
+      subdir: repoState.subdir,
+    });
+  }, [
+    autoRunPhase,
+    mode,
+    selectedBinderProfile,
+    repoState.provider,
+    repoState.repo,
+    repoState.ref,
+    repoState.subdir,
+    buildState.status,
+    buildState.logsOpen,
+    buildControls,
+  ]);
+
+  React.useEffect(() => {
+    if (autoRunPhase !== "building") return;
+
+    if (buildState.error) {
+      setAutoRunPhase("error");
+      return;
+    }
+
+    if (!buildState.imageName) {
+      return;
+    }
+
+    setAutoRunPhase("built");
+  }, [autoRunPhase, buildState.error, buildState.imageName]);
+
+  React.useEffect(() => {
+    if (autoRunPhase !== "built") return;
+    if (!selectedBinderProfile) return;
+    if (!buildState.imageName) return;
+    if (hasSubmittedLaunchRef.current) return;
+
+    const imageChoiceField = `profile-option-${selectedBinderProfile.slug}--image`;
+    const imageUnlistedField = `profile-option-${selectedBinderProfile.slug}--image--unlisted-choice`;
+
+    ensureFormField("profile", selectedBinderProfile.slug);
+    ensureFormField(imageChoiceField, "unlisted_choice");
+    ensureFormField(imageUnlistedField, buildState.imageName);
+
+    hasSubmittedLaunchRef.current = true;
+    setAutoRunPhase("launching");
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        submitPrimaryForm();
+      });
+    });
+  }, [autoRunPhase, selectedBinderProfile, buildState.imageName]);
 
   const previousRepoSignature = React.useRef<string>("");
 
@@ -789,16 +838,18 @@ export function App(props: Props) {
   const handleModeChange = (nextMode: UIMode) => {
     setMode(nextMode);
     setBinderValidationError("");
-    setPendingShareBuild(false);
-    setPendingShareLaunch(false);
+    setAutoRunPhase("idle");
+    hasOpenedLogsForAutoRunRef.current = false;
+    hasSubmittedLaunchRef.current = false;
     buildControls.reset();
   };
 
   const handleBinderProfileChange = (nextProfileSlug: string) => {
     setBinderProfileSlug(nextProfileSlug);
     setBinderValidationError("");
-    setPendingShareBuild(false);
-    setPendingShareLaunch(false);
+    setAutoRunPhase("idle");
+    hasOpenedLogsForAutoRunRef.current = false;
+    hasSubmittedLaunchRef.current = false;
     buildControls.reset();
   };
 
@@ -807,8 +858,11 @@ export function App(props: Props) {
       setBinderValidationError("");
     }
 
-    setPendingShareBuild(false);
-    setPendingShareLaunch(false);
+    if (autoRunPhase !== "idle") {
+      setAutoRunPhase("idle");
+      hasOpenedLogsForAutoRunRef.current = false;
+      hasSubmittedLaunchRef.current = false;
+    }
   };
 
   return (
@@ -845,6 +899,7 @@ export function App(props: Props) {
             }}
             environmentNumber={selectedBinderEnvironmentNumber}
             disabled={lockInputs}
+            autoRunPhase={autoRunPhase}
           />
 
           <BuildAndLaunch
