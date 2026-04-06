@@ -90,11 +90,11 @@ function getDefaultBinderProfileSlug(profiles: Profile[]) {
 }
 
 type ShareLinkParams = {
-  provider: RepoProvider;
-  repo: string;
-  ref: string;
-  subdir: string;
-  environmentNumber: number;
+  provider?: RepoProvider;
+  repo?: string;
+  ref?: string;
+  subdir?: string;
+  environmentNumber?: number;
 };
 
 function hasShareLinkHash() {
@@ -111,24 +111,14 @@ function parseShareLinkParams() {
   }
 
   const hashParams = new URLSearchParams(hash);
-
-  if (hashParams.get("mode") !== "binder") {
-    return null;
-  }
-
-  const repo = (hashParams.get("repo") ?? "").trim();
-  if (!repo) {
-    return null;
-  }
-
   const environmentNumber = Number(hashParams.get("env") ?? "1");
 
   return {
-    provider: (hashParams.get("provider") ?? "github") as RepoProvider,
-    repo,
-    ref: hashParams.get("ref") ?? "",
-    subdir: hashParams.get("subdir") ?? "",
-    environmentNumber: Number.isFinite(environmentNumber) && environmentNumber > 0 ? environmentNumber : 1,
+    provider: (hashParams.get("provider") ?? undefined) as RepoProvider | undefined,
+    repo: hashParams.get("repo") ?? undefined,
+    ref: hashParams.get("ref") ?? undefined,
+    subdir: hashParams.get("subdir") ?? undefined,
+    environmentNumber: Number.isFinite(environmentNumber) && environmentNumber > 0 ? environmentNumber : undefined,
   } satisfies ShareLinkParams;
 }
 
@@ -664,28 +654,59 @@ export function App(props: Props) {
       return;
     }
 
-    const environmentIndex = Math.min(
-      Math.max(shareLinkParams.environmentNumber - 1, 0),
-      Math.max(binderProfiles.length - 1, 0)
-    );
+    if (shareLinkParams.provider) {
+      setProvider(shareLinkParams.provider);
+    }
 
-    setProvider(shareLinkParams.provider);
-    setRepo(shareLinkParams.repo);
-    setRef(shareLinkParams.ref);
-    setSubdir(shareLinkParams.subdir);
-    setBinderProfileSlug(binderProfiles[environmentIndex]?.slug ?? defaultBinderSlug);
+    if (typeof shareLinkParams.repo === "string") {
+      setRepo(shareLinkParams.repo);
+    }
+
+    if (typeof shareLinkParams.ref === "string") {
+      setRef(shareLinkParams.ref);
+    }
+
+    if (typeof shareLinkParams.subdir === "string") {
+      setSubdir(shareLinkParams.subdir);
+    }
+
+    if (typeof shareLinkParams.environmentNumber === "number") {
+      const environmentIndex = Math.min(
+        Math.max(shareLinkParams.environmentNumber - 1, 0),
+        Math.max(binderProfiles.length - 1, 0)
+      );
+
+      setBinderProfileSlug(binderProfiles[environmentIndex]?.slug ?? defaultBinderSlug);
+    }
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        const repoFromHash = (shareLinkParams.repo ?? "").trim();
+
+        if (!repoFromHash) {
+          setBinderValidationError("Repository is required before building the image.");
+          return;
+        }
+
+        setBinderValidationError("");
         buildControls.startBuild({
-          provider: shareLinkParams.provider,
-          repo: shareLinkParams.repo,
-          ref: shareLinkParams.ref,
-          subdir: shareLinkParams.subdir,
+          provider: shareLinkParams.provider ?? repoState.provider,
+          repo: repoFromHash,
+          ref: shareLinkParams.ref ?? "",
+          subdir: shareLinkParams.subdir ?? "",
         });
       });
     });
-  }, [binderProfiles, defaultBinderSlug, setProvider, setRepo, setRef, setSubdir, buildControls]);
+  }, [
+    binderProfiles,
+    defaultBinderSlug,
+    setProvider,
+    setRepo,
+    setRef,
+    setSubdir,
+    buildControls,
+    repoState.provider,
+  ]);
 
   const selectedProfileSlug = mode === "binder" && binderProfileSlug ? binderProfileSlug : environmentSlug;
   const selectedBinderProfile = React.useMemo(
