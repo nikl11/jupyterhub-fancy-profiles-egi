@@ -122,6 +122,18 @@ function parseShareLinkParams() {
   } satisfies ShareLinkParams;
 }
 
+function submitPrimaryForm() {
+  const form = document.querySelector<HTMLFormElement>("form");
+  if (!form) return;
+
+  if (typeof form.requestSubmit === "function") {
+    form.requestSubmit();
+    return;
+  }
+
+  form.submit();
+}
+
 function buildPreviewShareLink(params: {
   provider: RepoProvider;
   repo: string;
@@ -633,6 +645,7 @@ export function App(props: Props) {
   const [environmentSlug, setEnvironmentSlug] = React.useState<string>(defaultEnvironmentSlug);
   const [binderProfileSlug, setBinderProfileSlug] = React.useState<string>(defaultBinderSlug);
   const [binderValidationError, setBinderValidationError] = React.useState<string>("");
+  const [autoLaunchFromHash, setAutoLaunchFromHash] = React.useState(false);
 
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
@@ -640,6 +653,7 @@ export function App(props: Props) {
 
   const { setProvider, setRepo, setRef, setSubdir } = repoState;
   const hasAppliedShareLinkRef = React.useRef(false);
+  const hasSubmittedLaunchRef = React.useRef(false);
 
   React.useEffect(() => {
     if (hasAppliedShareLinkRef.current) return;
@@ -679,12 +693,15 @@ export function App(props: Props) {
       setBinderProfileSlug(binderProfiles[environmentIndex]?.slug ?? defaultBinderSlug);
     }
 
+    setAutoLaunchFromHash(true);
+
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const repoFromHash = (shareLinkParams.repo ?? "").trim();
 
         if (!repoFromHash) {
           setBinderValidationError("Repository is required before building the image.");
+          setAutoLaunchFromHash(false);
           return;
         }
 
@@ -756,9 +773,32 @@ export function App(props: Props) {
     const imageChoiceField = `profile-option-${selectedBinderProfile.slug}--image`;
     const imageUnlistedField = `profile-option-${selectedBinderProfile.slug}--image--unlisted-choice`;
 
+    ensureFormField("profile", selectedBinderProfile.slug);
     ensureFormField(imageChoiceField, "unlisted_choice");
     ensureFormField(imageUnlistedField, buildState.imageName);
   }, [mode, selectedBinderProfile, buildState.imageName]);
+
+  React.useEffect(() => {
+    if (!autoLaunchFromHash) return;
+    if (!selectedBinderProfile) return;
+    if (!buildState.imageName) return;
+    if (hasSubmittedLaunchRef.current) return;
+
+    const imageChoiceField = `profile-option-${selectedBinderProfile.slug}--image`;
+    const imageUnlistedField = `profile-option-${selectedBinderProfile.slug}--image--unlisted-choice`;
+
+    ensureFormField("profile", selectedBinderProfile.slug);
+    ensureFormField(imageChoiceField, "unlisted_choice");
+    ensureFormField(imageUnlistedField, buildState.imageName);
+
+    hasSubmittedLaunchRef.current = true;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        submitPrimaryForm();
+      });
+    });
+  }, [autoLaunchFromHash, selectedBinderProfile, buildState.imageName]);
 
   const previousRepoSignature = React.useRef<string>("");
 
@@ -786,12 +826,16 @@ export function App(props: Props) {
   const handleModeChange = (nextMode: UIMode) => {
     setMode(nextMode);
     setBinderValidationError("");
+    setAutoLaunchFromHash(false);
+    hasSubmittedLaunchRef.current = false;
     buildControls.reset();
   };
 
   const handleBinderProfileChange = (nextProfileSlug: string) => {
     setBinderProfileSlug(nextProfileSlug);
     setBinderValidationError("");
+    setAutoLaunchFromHash(false);
+    hasSubmittedLaunchRef.current = false;
     buildControls.reset();
   };
 
@@ -800,6 +844,8 @@ export function App(props: Props) {
       setBinderValidationError("");
     }
 
+    setAutoLaunchFromHash(false);
+    hasSubmittedLaunchRef.current = false;
   };
 
   return (
