@@ -643,7 +643,6 @@ export function App(props: Props) {
   const [environmentSlug, setEnvironmentSlug] = React.useState<string>(defaultEnvironmentSlug);
   const [binderProfileSlug, setBinderProfileSlug] = React.useState<string>(defaultBinderSlug);
   const [binderValidationError, setBinderValidationError] = React.useState<string>("");
-  const [autoBuildFromHash, setAutoBuildFromHash] = React.useState(false);
 
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
@@ -661,22 +660,32 @@ export function App(props: Props) {
     setMode("binder");
 
     const shareLinkParams = parseShareLinkParams();
-    if (shareLinkParams) {
-      setProvider(shareLinkParams.provider);
-      setRepo(shareLinkParams.repo);
-      setRef(shareLinkParams.ref);
-      setSubdir(shareLinkParams.subdir);
-
-      const environmentIndex = Math.min(
-        Math.max(shareLinkParams.environmentNumber - 1, 0),
-        Math.max(binderProfiles.length - 1, 0)
-      );
-
-      setBinderProfileSlug(binderProfiles[environmentIndex]?.slug ?? defaultBinderSlug);
+    if (!shareLinkParams) {
+      return;
     }
 
-    setAutoBuildFromHash(true);
-  }, [binderProfiles, defaultBinderSlug, setProvider, setRepo, setRef, setSubdir]);
+    const environmentIndex = Math.min(
+      Math.max(shareLinkParams.environmentNumber - 1, 0),
+      Math.max(binderProfiles.length - 1, 0)
+    );
+
+    setProvider(shareLinkParams.provider);
+    setRepo(shareLinkParams.repo);
+    setRef(shareLinkParams.ref);
+    setSubdir(shareLinkParams.subdir);
+    setBinderProfileSlug(binderProfiles[environmentIndex]?.slug ?? defaultBinderSlug);
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        buildControls.startBuild({
+          provider: shareLinkParams.provider,
+          repo: shareLinkParams.repo,
+          ref: shareLinkParams.ref,
+          subdir: shareLinkParams.subdir,
+        });
+      });
+    });
+  }, [binderProfiles, defaultBinderSlug, setProvider, setRepo, setRef, setSubdir, buildControls]);
 
   const selectedProfileSlug = mode === "binder" && binderProfileSlug ? binderProfileSlug : environmentSlug;
   const selectedBinderProfile = React.useMemo(
@@ -689,38 +698,6 @@ export function App(props: Props) {
     return binderProfileIndex >= 0 ? binderProfileIndex + 1 : 1;
   }, [binderProfiles, binderProfileSlug]);
   const binderLaunchDisabled = mode === "binder" && (!selectedBinderProfile || lockInputs || !buildState.imageName);
-
-  React.useEffect(() => {
-    if (!autoBuildFromHash) return;
-    if (mode !== "binder") return;
-    if (!selectedBinderProfile) return;
-    if (buildState.status !== "idle") return;
-
-    if (!repoState.repo.trim()) {
-      setBinderValidationError("Repository is required before building the image.");
-      setAutoBuildFromHash(false);
-      return;
-    }
-
-    setBinderValidationError("");
-    setAutoBuildFromHash(false);
-    buildControls.startBuild({
-      provider: repoState.provider,
-      repo: repoState.repo,
-      ref: repoState.ref,
-      subdir: repoState.subdir,
-    });
-  }, [
-    autoBuildFromHash,
-    mode,
-    selectedBinderProfile,
-    buildState.status,
-    repoState.provider,
-    repoState.repo,
-    repoState.ref,
-    repoState.subdir,
-    buildControls,
-  ]);
 
   React.useEffect(() => {
     renamePrimarySubmitButton("Launch");
@@ -788,14 +765,12 @@ export function App(props: Props) {
   const handleModeChange = (nextMode: UIMode) => {
     setMode(nextMode);
     setBinderValidationError("");
-    setAutoBuildFromHash(false);
     buildControls.reset();
   };
 
   const handleBinderProfileChange = (nextProfileSlug: string) => {
     setBinderProfileSlug(nextProfileSlug);
     setBinderValidationError("");
-    setAutoBuildFromHash(false);
     buildControls.reset();
   };
 
@@ -804,7 +779,6 @@ export function App(props: Props) {
       setBinderValidationError("");
     }
 
-    setAutoBuildFromHash(false);
   };
 
   return (
