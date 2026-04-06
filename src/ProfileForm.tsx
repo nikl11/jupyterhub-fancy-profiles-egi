@@ -97,6 +97,10 @@ type ShareLinkParams = {
   environmentNumber: number;
 };
 
+function hasShareLinkHash() {
+  return window.location.href.includes("#");
+}
+
 function parseShareLinkParams() {
   const hash = window.location.hash.startsWith("#")
     ? window.location.hash.slice(1)
@@ -639,6 +643,7 @@ export function App(props: Props) {
   const [environmentSlug, setEnvironmentSlug] = React.useState<string>(defaultEnvironmentSlug);
   const [binderProfileSlug, setBinderProfileSlug] = React.useState<string>(defaultBinderSlug);
   const [binderValidationError, setBinderValidationError] = React.useState<string>("");
+  const [autoBuildFromHash, setAutoBuildFromHash] = React.useState(false);
 
   const repoState = useRepositoryField();
   const [buildState, buildControls] = useBinderBuild();
@@ -650,23 +655,27 @@ export function App(props: Props) {
   React.useEffect(() => {
     if (hasAppliedShareLinkRef.current) return;
     if (binderProfiles.length === 0) return;
-
-    const shareLinkParams = parseShareLinkParams();
-    if (!shareLinkParams) return;
+    if (!hasShareLinkHash()) return;
 
     hasAppliedShareLinkRef.current = true;
     setMode("binder");
-    setProvider(shareLinkParams.provider);
-    setRepo(shareLinkParams.repo);
-    setRef(shareLinkParams.ref);
-    setSubdir(shareLinkParams.subdir);
 
-    const environmentIndex = Math.min(
-      Math.max(shareLinkParams.environmentNumber - 1, 0),
-      Math.max(binderProfiles.length - 1, 0)
-    );
+    const shareLinkParams = parseShareLinkParams();
+    if (shareLinkParams) {
+      setProvider(shareLinkParams.provider);
+      setRepo(shareLinkParams.repo);
+      setRef(shareLinkParams.ref);
+      setSubdir(shareLinkParams.subdir);
 
-    setBinderProfileSlug(binderProfiles[environmentIndex]?.slug ?? defaultBinderSlug);
+      const environmentIndex = Math.min(
+        Math.max(shareLinkParams.environmentNumber - 1, 0),
+        Math.max(binderProfiles.length - 1, 0)
+      );
+
+      setBinderProfileSlug(binderProfiles[environmentIndex]?.slug ?? defaultBinderSlug);
+    }
+
+    setAutoBuildFromHash(true);
   }, [binderProfiles, defaultBinderSlug, setProvider, setRepo, setRef, setSubdir]);
 
   const selectedProfileSlug = mode === "binder" && binderProfileSlug ? binderProfileSlug : environmentSlug;
@@ -680,6 +689,38 @@ export function App(props: Props) {
     return binderProfileIndex >= 0 ? binderProfileIndex + 1 : 1;
   }, [binderProfiles, binderProfileSlug]);
   const binderLaunchDisabled = mode === "binder" && (!selectedBinderProfile || lockInputs || !buildState.imageName);
+
+  React.useEffect(() => {
+    if (!autoBuildFromHash) return;
+    if (mode !== "binder") return;
+    if (!selectedBinderProfile) return;
+    if (buildState.status !== "idle") return;
+
+    if (!repoState.repo.trim()) {
+      setBinderValidationError("Repository is required before building the image.");
+      setAutoBuildFromHash(false);
+      return;
+    }
+
+    setBinderValidationError("");
+    setAutoBuildFromHash(false);
+    buildControls.startBuild({
+      provider: repoState.provider,
+      repo: repoState.repo,
+      ref: repoState.ref,
+      subdir: repoState.subdir,
+    });
+  }, [
+    autoBuildFromHash,
+    mode,
+    selectedBinderProfile,
+    buildState.status,
+    repoState.provider,
+    repoState.repo,
+    repoState.ref,
+    repoState.subdir,
+    buildControls,
+  ]);
 
   React.useEffect(() => {
     renamePrimarySubmitButton("Launch");
@@ -747,12 +788,14 @@ export function App(props: Props) {
   const handleModeChange = (nextMode: UIMode) => {
     setMode(nextMode);
     setBinderValidationError("");
+    setAutoBuildFromHash(false);
     buildControls.reset();
   };
 
   const handleBinderProfileChange = (nextProfileSlug: string) => {
     setBinderProfileSlug(nextProfileSlug);
     setBinderValidationError("");
+    setAutoBuildFromHash(false);
     buildControls.reset();
   };
 
@@ -760,6 +803,8 @@ export function App(props: Props) {
     if (binderValidationError) {
       setBinderValidationError("");
     }
+
+    setAutoBuildFromHash(false);
   };
 
   return (
