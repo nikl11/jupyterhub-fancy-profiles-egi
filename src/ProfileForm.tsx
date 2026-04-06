@@ -98,24 +98,32 @@ type ShareLinkParams = {
 };
 
 function parseShareLinkParams() {
-  const url = new URL(window.location.href);
+  const hash = window.location.hash.startsWith("#")
+    ? window.location.hash.slice(1)
+    : window.location.hash;
 
-  if (url.searchParams.get("mode") !== "binder") {
+  if (!hash) {
     return null;
   }
 
-  const repo = (url.searchParams.get("repo") ?? "").trim();
+  const hashParams = new URLSearchParams(hash);
+
+  if (hashParams.get("mode") !== "binder") {
+    return null;
+  }
+
+  const repo = (hashParams.get("repo") ?? "").trim();
   if (!repo) {
     return null;
   }
 
-  const environmentNumber = Number(url.searchParams.get("env") ?? "1");
+  const environmentNumber = Number(hashParams.get("env") ?? "1");
 
   return {
-    provider: (url.searchParams.get("provider") ?? "github") as RepoProvider,
+    provider: (hashParams.get("provider") ?? "github") as RepoProvider,
     repo,
-    ref: url.searchParams.get("ref") ?? "",
-    subdir: url.searchParams.get("subdir") ?? "",
+    ref: hashParams.get("ref") ?? "",
+    subdir: hashParams.get("subdir") ?? "",
     environmentNumber: Number.isFinite(environmentNumber) && environmentNumber > 0 ? environmentNumber : 1,
   } satisfies ShareLinkParams;
 }
@@ -135,25 +143,24 @@ function buildPreviewShareLink(params: {
     return "";
   }
 
-  const url = new URL(window.location.href);
+  const url = new URL("/hub/spawn", window.location.origin);
+  const hashParams = new URLSearchParams();
 
-  url.search = "";
-  url.searchParams.set("mode", "binder");
-  url.searchParams.set("provider", params.provider);
-
-  if (repo) {
-    url.searchParams.set("repo", repo);
-  }
+  hashParams.set("mode", "binder");
+  hashParams.set("provider", params.provider);
+  hashParams.set("repo", repo);
 
   if (ref) {
-    url.searchParams.set("ref", ref);
+    hashParams.set("ref", ref);
   }
 
   if (subdir) {
-    url.searchParams.set("subdir", subdir);
+    hashParams.set("subdir", subdir);
   }
 
-  url.searchParams.set("env", String(params.environmentNumber));
+  hashParams.set("env", String(params.environmentNumber));
+
+  url.hash = hashParams.toString();
 
   return url.toString();
 }
