@@ -1,4 +1,8 @@
 node_modules/
+jupyterhub_fancy_profiles/static/
+src/*test.tsx
+src/*save
+src/*.ts
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
