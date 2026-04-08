@@ -551,7 +551,7 @@ function RepositoryForm(props: {
           </div>
 
           <div className="col-12 col-md-7">
-            <label className="form-label">Subdirectory</label>
+            <label className="form-label">Path to open</label>
             <input
               className="form-control"
               value={repoState.subdir}
@@ -579,6 +579,7 @@ function ShareLinkCard(props: {
 }) {
   const { repo, environmentNumber, disabled } = props;
   const [copyStatus, setCopyStatus] = React.useState<"idle" | "copied" | "error">("idle");
+  const shareLinkRef = React.useRef<HTMLTextAreaElement | null>(null);
 
   const shareLink = React.useMemo(() => {
     return buildPreviewShareLink({
@@ -594,6 +595,14 @@ function ShareLinkCard(props: {
     setCopyStatus("idle");
   }, [shareLink]);
 
+  React.useEffect(() => {
+    const textarea = shareLinkRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [shareLink]);
+
   const hasShareLink = Boolean(shareLink);
 
   return (
@@ -605,11 +614,14 @@ function ShareLinkCard(props: {
         </div>
 
         <div className="input-group">
-          <input
+          <textarea
+            ref={shareLinkRef}
             className="form-control"
             readOnly
+            rows={1}
             value={shareLink}
             placeholder="Fill in the fields to see a URL for sharing your Binder."
+            style={{ resize: "none", overflow: "hidden", whiteSpace: "pre-wrap" }}
           />
           <button
             type="button"
