@@ -146,24 +146,34 @@ function parseMyBinderCookiePayload() {
     return null;
   }
 
-  const repoSpec = decodeURIComponent(pathSegments[1] ?? "").trim();
-  const rawRef = pathSegments.length >= 3 ? decodeURIComponent(pathSegments.slice(2).join("/")) : "";
   const queryParams = new URLSearchParams(queryPart);
+  const rawEnv = queryParams.get("env") ?? "";
+  const environmentNumber = /^\d+$/.test(rawEnv) && Number(rawEnv) > 0 ? Number(rawEnv) : undefined;
+
+  const refNotApplicable =
+    providerConfig.provider === "zenodo" ||
+    providerConfig.provider === "figshare" ||
+    providerConfig.provider === "hydroshare" ||
+    providerConfig.provider === "dataverse" ||
+    providerConfig.provider === "ckan";
+
+  const repoSegments = refNotApplicable
+    ? pathSegments.slice(1)
+    : pathSegments.slice(1, Math.max(pathSegments.length - 1, 1));
+
+  const repoSpec = decodeURIComponent(repoSegments.join("/")).trim();
+
+  let rawRef = "";
+  if (!refNotApplicable && pathSegments.length >= 3) {
+    rawRef = decodeURIComponent(pathSegments[pathSegments.length - 1]).trim();
+    if (rawRef === "HEAD") {
+      rawRef = "";
+    }
+  }
 
   let urlpath = decodeURIComponent(queryParams.get("urlpath") ?? "").trim();
   urlpath = urlpath.replace(/^\/+/, "");
-
-  let environmentNumber: number | undefined;
-  if (urlpath) {
-    const urlpathSegments = urlpath.split("/").filter(Boolean);
-    const lastSegment = urlpathSegments[urlpathSegments.length - 1];
-
-    if (lastSegment && /^\d+$/.test(lastSegment)) {
-      environmentNumber = Number(lastSegment);
-      urlpathSegments.pop();
-      urlpath = urlpathSegments.join("/");
-    }
-  }
+  urlpath = urlpath.replace(/^doc\/tree\//, "");
 
   const repo = repoSpec
     ? providerConfig.repoBase
@@ -200,7 +210,7 @@ function buildPreviewShareLink(params: {
   environmentNumber: number;
 }) {
   const repo = params.repo.trim();
-  const ref = params.ref.trim();
+  const rawRef = params.ref.trim();
   const subdir = params.subdir.trim();
 
   if (!repo) {
@@ -224,31 +234,52 @@ function buildPreviewShareLink(params: {
     return "";
   }
 
-  const base = new URL("/v2/", window.location.origin);
+  const refNotApplicable =
+    params.provider === "zenodo" ||
+    params.provider === "figshare" ||
+    params.provider === "hydroshare" ||
+    params.provider === "dataverse" ||
+    params.provider === "ckan";
 
-  const repoPath = repo
-    .replace(/^https?:\/\/(www\.)?github\.com\//i, "")
-    .replace(/^https?:\/\/(www\.)?gitlab\.com\//i, "")
-    .replace(/^https?:\/\/gist\.github\.com\//i, "")
-    .replace(/^https?:\/\/www\.hydroshare\.org\/resource\//i, "")
-    .replace(/^https?:\/\/doi\.org\//i, "");
+  const effectiveRef = refNotApplicable ? "" : rawRef || "HEAD";
 
-  const pathParts = [providerCode, encodeURIComponent(repoPath)];
-  if (ref) {
-    pathParts.push(encodeURIComponent(ref));
+  let repoPath = repo;
+  if (params.provider === "github") {
+    repoPath = repoPath.replace(/^https?:\/\/(www\.)?github\.com\//i, "");
+  } else if (params.provider === "gitlab") {
+    repoPath = repoPath.replace(/^https?:\/\/(www\.)?gitlab\.com\//i, "");
+  } else if (params.provider === "gist") {
+    repoPath = repoPath.replace(/^https?:\/\/gist\.github\.com\//i, "");
+  } else if (params.provider === "hydroshare") {
+    repoPath = repoPath.replace(/^https?:\/\/www\.hydroshare\.org\/resource\//i, "");
+  } else if (
+    params.provider === "zenodo" ||
+    params.provider === "figshare" ||
+    params.provider === "dataverse"
+  ) {
+    repoPath = repoPath.replace(/^https?:\/\/doi\.org\//i, "");
   }
 
-  base.pathname = `${base.pathname.replace(/\/$/, "")}/${pathParts.join("/")}`;
+  const encodedRepoPath =
+    params.provider === "git" || params.provider === "ckan"
+      ? encodeURIComponent(repoPath)
+      : repoPath;
 
-  const query = new URLSearchParams();
+  let link = `${window.location.origin}/v2/${providerCode}/${encodedRepoPath}`;
+  if (effectiveRef) {
+    link += `/${encodeURIComponent(effectiveRef)}`;
+  } else {
+    link += "/";
+  }
+
   if (subdir) {
-    query.set("urlpath", `${subdir}/${params.environmentNumber}`);
-  } else if (params.environmentNumber > 0) {
-    query.set("urlpath", String(params.environmentNumber));
+    const encodedUrlPath = encodeURIComponent(`/doc/tree/${subdir}`);
+    link += `?urlpath=${encodedUrlPath}&env=${params.environmentNumber}`;
+  } else {
+    link += `?env=${params.environmentNumber}`;
   }
 
-  const queryString = query.toString();
-  return queryString ? `${base.toString()}?${queryString}` : base.toString();
+  return link;
 }
 
 async function copyTextToClipboard(value: string) {
