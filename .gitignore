@@ -1,5 +1,9 @@
-node_modules/
 jupyterhub_fancy_profiles/static/
+!jupyterhub_fancy_profiles/static/dist
+jupyterhub_fancy_profiles/static/dist/*
+!jupyterhub_fancy_profiles/static/dist/form.js
+
+node_modules/
 src/*test.tsx
 src/*save
 src/*.ts
