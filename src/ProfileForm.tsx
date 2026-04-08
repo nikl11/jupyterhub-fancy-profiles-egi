@@ -97,28 +97,86 @@ type ShareLinkParams = {
   environmentNumber?: number;
 };
 
-function hasShareLinkHash() {
-  return window.location.href.includes("#");
+const FANCY_SHARE_COOKIE = "fancy_share";
+
+const MYBINDER_PROVIDER_MAP: Record<string, { provider: RepoProvider; repoBase?: string }> = {
+  gh: { provider: "github", repoBase: "https://github.com" },
+  gist: { provider: "gist", repoBase: "https://gist.github.com" },
+  git: { provider: "git" },
+  gl: { provider: "gitlab", repoBase: "https://gitlab.com" },
+  zenodo: { provider: "zenodo", repoBase: "https://doi.org" },
+  figshare: { provider: "figshare", repoBase: "https://doi.org" },
+  hydroshare: { provider: "hydroshare", repoBase: "https://www.hydroshare.org/resource" },
+  dataverse: { provider: "dataverse", repoBase: "https://doi.org" },
+  ckan: { provider: "ckan" },
+};
+
+function getCookie(name: string) {
+  const prefix = `${name}=`;
+  const cookies = document.cookie.split(";");
+
+  for (const cookie of cookies) {
+    const trimmed = cookie.trim();
+    if (trimmed.startsWith(prefix)) {
+      return trimmed.slice(prefix.length);
+    }
+  }
+
+  return null;
 }
 
-function parseShareLinkParams() {
-  const hash = window.location.hash.startsWith("#")
-    ? window.location.hash.slice(1)
-    : window.location.hash;
+function clearCookie(name: string) {
+  document.cookie = `${name}=; Max-Age=0; Path=/; Secure; SameSite=Lax`;
+}
 
-  if (!hash) {
+function parseMyBinderCookiePayload() {
+  const rawCookieValue = getCookie(FANCY_SHARE_COOKIE);
+  if (!rawCookieValue) {
     return null;
   }
 
-  const hashParams = new URLSearchParams(hash);
-  const environmentNumber = Number(hashParams.get("env") ?? "1");
+  clearCookie(FANCY_SHARE_COOKIE);
+
+  const [pathPart, queryPart = ""] = rawCookieValue.split("?", 2);
+  const pathSegments = pathPart.split("/").filter(Boolean);
+  const providerCode = pathSegments[0];
+  const providerConfig = MYBINDER_PROVIDER_MAP[providerCode];
+
+  if (!providerConfig) {
+    return null;
+  }
+
+  const repoSpec = decodeURIComponent(pathSegments[1] ?? "").trim();
+  const rawRef = pathSegments.length >= 3 ? decodeURIComponent(pathSegments.slice(2).join("/")) : "";
+  const queryParams = new URLSearchParams(queryPart);
+
+  let urlpath = decodeURIComponent(queryParams.get("urlpath") ?? "").trim();
+  urlpath = urlpath.replace(/^\/+/, "");
+
+  let environmentNumber: number | undefined;
+  if (urlpath) {
+    const urlpathSegments = urlpath.split("/").filter(Boolean);
+    const lastSegment = urlpathSegments[urlpathSegments.length - 1];
+
+    if (lastSegment && /^\d+$/.test(lastSegment)) {
+      environmentNumber = Number(lastSegment);
+      urlpathSegments.pop();
+      urlpath = urlpathSegments.join("/");
+    }
+  }
+
+  const repo = repoSpec
+    ? providerConfig.repoBase
+      ? `${providerConfig.repoBase}/${repoSpec}`
+      : repoSpec
+    : undefined;
 
   return {
-    provider: (hashParams.get("provider") ?? undefined) as RepoProvider | undefined,
-    repo: hashParams.get("repo") ?? undefined,
-    ref: hashParams.get("ref") ?? undefined,
-    subdir: hashParams.get("subdir") ?? undefined,
-    environmentNumber: Number.isFinite(environmentNumber) && environmentNumber > 0 ? environmentNumber : undefined,
+    provider: providerConfig.provider,
+    repo,
+    ref: rawRef || undefined,
+    subdir: urlpath || undefined,
+    environmentNumber,
   } satisfies ShareLinkParams;
 }
 
@@ -149,26 +207,48 @@ function buildPreviewShareLink(params: {
     return "";
   }
 
-  const url = new URL("/hub/spawn", window.location.origin);
-  const hashParams = new URLSearchParams();
+  const providerCodeMap: Record<RepoProvider, string> = {
+    github: "gh",
+    gist: "gist",
+    git: "git",
+    gitlab: "gl",
+    zenodo: "zenodo",
+    figshare: "figshare",
+    hydroshare: "hydroshare",
+    dataverse: "dataverse",
+    ckan: "ckan",
+  };
 
-  hashParams.set("mode", "binder");
-  hashParams.set("provider", params.provider);
-  hashParams.set("repo", repo);
+  const providerCode = providerCodeMap[params.provider];
+  if (!providerCode) {
+    return "";
+  }
 
+  const base = new URL("/v2/", window.location.origin);
+
+  const repoPath = repo
+    .replace(/^https?:\/\/(www\.)?github\.com\//i, "")
+    .replace(/^https?:\/\/(www\.)?gitlab\.com\//i, "")
+    .replace(/^https?:\/\/gist\.github\.com\//i, "")
+    .replace(/^https?:\/\/www\.hydroshare\.org\/resource\//i, "")
+    .replace(/^https?:\/\/doi\.org\//i, "");
+
+  const pathParts = [providerCode, encodeURIComponent(repoPath)];
   if (ref) {
-    hashParams.set("ref", ref);
+    pathParts.push(encodeURIComponent(ref));
   }
 
+  base.pathname = `${base.pathname.replace(/\/$/, "")}/${pathParts.join("/")}`;
+
+  const query = new URLSearchParams();
   if (subdir) {
-    hashParams.set("subdir", subdir);
+    query.set("urlpath", `${subdir}/${params.environmentNumber}`);
+  } else if (params.environmentNumber > 0) {
+    query.set("urlpath", String(params.environmentNumber));
   }
 
-  hashParams.set("env", String(params.environmentNumber));
-
-  url.hash = hashParams.toString();
-
-  return url.toString();
+  const queryString = query.toString();
+  return queryString ? `${base.toString()}?${queryString}` : base.toString();
 }
 
 async function copyTextToClipboard(value: string) {
@@ -658,15 +738,14 @@ export function App(props: Props) {
   React.useEffect(() => {
     if (hasAppliedShareLinkRef.current) return;
     if (binderProfiles.length === 0) return;
-    if (!hasShareLinkHash()) return;
 
-    hasAppliedShareLinkRef.current = true;
-    setMode("binder");
-
-    const shareLinkParams = parseShareLinkParams();
+    const shareLinkParams = parseMyBinderCookiePayload();
     if (!shareLinkParams) {
       return;
     }
+
+    hasAppliedShareLinkRef.current = true;
+    setMode("binder");
 
     if (shareLinkParams.provider) {
       setProvider(shareLinkParams.provider);
@@ -697,9 +776,9 @@ export function App(props: Props) {
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const repoFromHash = (shareLinkParams.repo ?? "").trim();
+        const repoFromCookie = (shareLinkParams.repo ?? "").trim();
 
-        if (!repoFromHash) {
+        if (!repoFromCookie) {
           setBinderValidationError("Repository is required before building the image.");
           setAutoLaunchFromHash(false);
           return;
@@ -708,7 +787,7 @@ export function App(props: Props) {
         setBinderValidationError("");
         buildControls.startBuild({
           provider: shareLinkParams.provider ?? repoState.provider,
-          repo: repoFromHash,
+          repo: repoFromCookie,
           ref: shareLinkParams.ref ?? "",
           subdir: shareLinkParams.subdir ?? "",
         });
