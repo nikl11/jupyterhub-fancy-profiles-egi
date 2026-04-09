@@ -689,9 +689,10 @@ function BuildAndLaunch(props: {
   repo: { provider: RepoProvider; repo: string; ref: string; subdir: string };
   lockInputs: boolean;
   validationError: string;
+  shareLinkError: string;
   onValidationError: (message: string) => void;
 }) {
-  const { buildState, buildControls, repo, lockInputs, validationError, onValidationError } = props;
+  const { buildState, buildControls, repo, lockInputs, validationError, shareLinkError, onValidationError } = props;
   const isBuilding = buildState.status === "building";
   const logRef = React.useRef<HTMLPreElement | null>(null);
 
@@ -738,7 +739,10 @@ function BuildAndLaunch(props: {
         </div>
 
         {validationError ? <div className="mt-2 alert alert-danger py-2 mb-0">{validationError}</div> : null}
-        {!validationError && buildState.error ? (
+        {!validationError && shareLinkError ? (
+          <div className="mt-2 alert alert-danger py-2 mb-0">{shareLinkError}</div>
+        ) : null}
+        {!validationError && !shareLinkError && buildState.error ? (
           <div className="mt-2 alert alert-danger py-2 mb-0">{buildState.error}</div>
         ) : null}
 
@@ -787,6 +791,7 @@ export function App(props: Props) {
   const [environmentSlug, setEnvironmentSlug] = React.useState<string>(defaultEnvironmentSlug);
   const [binderProfileSlug, setBinderProfileSlug] = React.useState<string>(defaultBinderSlug);
   const [binderValidationError, setBinderValidationError] = React.useState<string>("");
+  const [shareLinkError, setShareLinkError] = React.useState<string>("");
   const [autoLaunchFromHash, setAutoLaunchFromHash] = React.useState(false);
 
   const repoState = useRepositoryField();
@@ -810,7 +815,7 @@ export function App(props: Props) {
     setMode("binder");
 
     if (!parseResult.ok) {
-      setBinderValidationError(parseResult.error);
+      setShareLinkError(parseResult.error);
       setAutoLaunchFromHash(false);
       return;
     }
@@ -855,6 +860,7 @@ export function App(props: Props) {
         }
 
         setBinderValidationError("");
+        setShareLinkError("");
         buildControls.startBuild({
           provider: shareLinkParams.provider ?? repoState.provider,
           repo: repoFromCookie,
@@ -975,6 +981,7 @@ export function App(props: Props) {
   const handleModeChange = (nextMode: UIMode) => {
     setMode(nextMode);
     setBinderValidationError("");
+    setShareLinkError("");
     setAutoLaunchFromHash(false);
     hasSubmittedLaunchRef.current = false;
     buildControls.reset();
@@ -983,6 +990,7 @@ export function App(props: Props) {
   const handleBinderProfileChange = (nextProfileSlug: string) => {
     setBinderProfileSlug(nextProfileSlug);
     setBinderValidationError("");
+    setShareLinkError("");
     setAutoLaunchFromHash(false);
     hasSubmittedLaunchRef.current = false;
     buildControls.reset();
@@ -991,6 +999,9 @@ export function App(props: Props) {
   const handleRepositoryInputChange = () => {
     if (binderValidationError) {
       setBinderValidationError("");
+    }
+    if (shareLinkError) {
+      setShareLinkError("");
     }
 
     setAutoLaunchFromHash(false);
@@ -1044,6 +1055,7 @@ export function App(props: Props) {
             }}
             lockInputs={lockInputs}
             validationError={binderValidationError}
+            shareLinkError={shareLinkError}
             onValidationError={setBinderValidationError}
           />
         </>
