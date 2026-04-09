@@ -111,6 +111,10 @@ const MYBINDER_PROVIDER_MAP: Record<string, { provider: RepoProvider; repoBase?:
   ckan: { provider: "ckan" },
 };
 
+type ShareLinkParseResult =
+  | { ok: true; data: ShareLinkParams }
+  | { ok: false; error: string };
+
 function getCookie(name: string) {
   const prefix = `${name}=`;
   const cookies = document.cookie.split(";");
@@ -129,7 +133,7 @@ function clearCookie(name: string) {
   document.cookie = `${name}=; Max-Age=0; Path=/; Secure; SameSite=Lax`;
 }
 
-function parseMyBinderCookiePayload() {
+function parseMyBinderCookiePayload(): ShareLinkParseResult | null {
   const rawCookieValue = getCookie(FANCY_SHARE_COOKIE);
   if (!rawCookieValue) {
     return null;
@@ -137,57 +141,72 @@ function parseMyBinderCookiePayload() {
 
   clearCookie(FANCY_SHARE_COOKIE);
 
-  const [pathPart, queryPart = ""] = rawCookieValue.split("?", 2);
-  const pathSegments = pathPart.split("/").filter(Boolean);
-  const providerCode = pathSegments[0];
-  const providerConfig = MYBINDER_PROVIDER_MAP[providerCode];
+  try {
+    const [pathPart, queryPart = ""] = rawCookieValue.split("?", 2);
+    const pathSegments = pathPart.split("/").filter(Boolean);
 
-  if (!providerConfig) {
-    return null;
-  }
-
-  const queryParams = new URLSearchParams(queryPart);
-  const rawEnv = queryParams.get("env") ?? "";
-  const environmentNumber = /^\d+$/.test(rawEnv) && Number(rawEnv) > 0 ? Number(rawEnv) : undefined;
-
-  const refNotApplicable =
-    providerConfig.provider === "zenodo" ||
-    providerConfig.provider === "figshare" ||
-    providerConfig.provider === "hydroshare" ||
-    providerConfig.provider === "dataverse" ||
-    providerConfig.provider === "ckan";
-
-  const repoSegments = refNotApplicable
-    ? pathSegments.slice(1)
-    : pathSegments.slice(1, Math.max(pathSegments.length - 1, 1));
-
-  const repoSpec = decodeURIComponent(repoSegments.join("/")).trim();
-
-  let rawRef = "";
-  if (!refNotApplicable && pathSegments.length >= 3) {
-    rawRef = decodeURIComponent(pathSegments[pathSegments.length - 1]).trim();
-    if (rawRef === "HEAD") {
-      rawRef = "";
+    if (pathSegments.length === 0) {
+      return { ok: false, error: "Invalid share link: missing provider." };
     }
+
+    const providerCode = pathSegments[0];
+    const providerConfig = MYBINDER_PROVIDER_MAP[providerCode];
+
+    if (!providerConfig) {
+      return { ok: false, error: `Invalid share link: unknown provider '${providerCode}'.` };
+    }
+
+    const queryParams = new URLSearchParams(queryPart);
+    const rawEnv = queryParams.get("env") ?? "";
+    const environmentNumber = /^\d+$/.test(rawEnv) && Number(rawEnv) > 0 ? Number(rawEnv) : undefined;
+
+    const refNotApplicable =
+      providerConfig.provider === "zenodo" ||
+      providerConfig.provider === "figshare" ||
+      providerConfig.provider === "hydroshare" ||
+      providerConfig.provider === "dataverse" ||
+      providerConfig.provider === "ckan";
+
+    const repoSegments = refNotApplicable
+      ? pathSegments.slice(1)
+      : pathSegments.slice(1, Math.max(pathSegments.length - 1, 1));
+
+    const repoSpec = decodeURIComponent(repoSegments.join("/")).trim();
+
+    if (!repoSpec) {
+      return { ok: false, error: "Invalid share link: repository is missing." };
+    }
+
+    let rawRef = "";
+    if (!refNotApplicable && pathSegments.length >= 3) {
+      rawRef = decodeURIComponent(pathSegments[pathSegments.length - 1]).trim();
+      if (rawRef === "HEAD") {
+        rawRef = "";
+      }
+    }
+
+    let urlpath = decodeURIComponent(queryParams.get("urlpath") ?? "").trim();
+    urlpath = urlpath.replace(/^\/+/, "");
+    urlpath = urlpath.replace(/^doc\/tree\//, "");
+
+    const repo = providerConfig.repoBase ? `${providerConfig.repoBase}/${repoSpec}` : repoSpec;
+
+    return {
+      ok: true,
+      data: {
+        provider: providerConfig.provider,
+        repo,
+        ref: rawRef || undefined,
+        subdir: urlpath || undefined,
+        environmentNumber,
+      },
+    };
+  } catch (_error) {
+    return {
+      ok: false,
+      error: "Invalid share link: failed to parse parameters.",
+    };
   }
-
-  let urlpath = decodeURIComponent(queryParams.get("urlpath") ?? "").trim();
-  urlpath = urlpath.replace(/^\/+/, "");
-  urlpath = urlpath.replace(/^doc\/tree\//, "");
-
-  const repo = repoSpec
-    ? providerConfig.repoBase
-      ? `${providerConfig.repoBase}/${repoSpec}`
-      : repoSpec
-    : undefined;
-
-  return {
-    provider: providerConfig.provider,
-    repo,
-    ref: rawRef || undefined,
-    subdir: urlpath || undefined,
-    environmentNumber,
-  } satisfies ShareLinkParams;
 }
 
 function submitPrimaryForm() {
@@ -782,13 +801,21 @@ export function App(props: Props) {
     if (hasAppliedShareLinkRef.current) return;
     if (binderProfiles.length === 0) return;
 
-    const shareLinkParams = parseMyBinderCookiePayload();
-    if (!shareLinkParams) {
+    const parseResult = parseMyBinderCookiePayload();
+    if (!parseResult) {
       return;
     }
 
     hasAppliedShareLinkRef.current = true;
     setMode("binder");
+
+    if (!parseResult.ok) {
+      setBinderValidationError(parseResult.error);
+      setAutoLaunchFromHash(false);
+      return;
+    }
+
+    const shareLinkParams = parseResult.data;
 
     if (shareLinkParams.provider) {
       setProvider(shareLinkParams.provider);
