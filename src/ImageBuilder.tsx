@@ -213,54 +213,36 @@ function normalizeGit(input: string): { spec: string } {
   return { spec: raw };
 }
 
-function mapToBinderProvider(p: RepoProvider): string {
-  switch (p) {
-    case "github":
-      return "gh";
-    case "gitlab":
-      return "gl";
-    case "gist":
-      return "gist";
-    case "zenodo":
-      return "zenodo";
-    case "figshare":
-      return "figshare";
-    case "hydroshare":
-      return "hydroshare";
-    case "dataverse":
-      return "dataverse";
-    case "ckan":
-      return "ckan";
-    case "git":
-      return "git";
-    default:
-      return "gh";
-  }
+const BINDER_PROVIDER_MAP: Record<RepoProvider, string> = {
+  github: "gh",
+  gitlab: "gl",
+  gist: "gist",
+  zenodo: "zenodo",
+  figshare: "figshare",
+  hydroshare: "hydroshare",
+  dataverse: "dataverse",
+  ckan: "ckan",
+  git: "git",
+};
+
+const REPOSITORY_NORMALIZERS: Record<RepoProvider, (repoRaw: string) => { spec: string }> = {
+  github: normalizeGithub,
+  gitlab: normalizeGitlab,
+  gist: normalizeGist,
+  zenodo: normalizeZenodo,
+  figshare: normalizeFigshare,
+  hydroshare: normalizeHydroshare,
+  dataverse: normalizeDataverse,
+  ckan: normalizeCkan,
+  git: normalizeGit,
+};
+
+function mapToBinderProvider(provider: RepoProvider): string {
+  return BINDER_PROVIDER_MAP[provider] ?? "gh";
 }
 
-function normalizeForProvider(p: RepoProvider, repoRaw: string) {
-  switch (p) {
-    case "github":
-      return normalizeGithub(repoRaw);
-    case "gitlab":
-      return normalizeGitlab(repoRaw);
-    case "gist":
-      return normalizeGist(repoRaw);
-    case "zenodo":
-      return normalizeZenodo(repoRaw);
-    case "figshare":
-      return normalizeFigshare(repoRaw);
-    case "hydroshare":
-      return normalizeHydroshare(repoRaw);
-    case "dataverse":
-      return normalizeDataverse(repoRaw);
-    case "ckan":
-      return normalizeCkan(repoRaw);
-    case "git":
-      return normalizeGit(repoRaw);
-    default:
-      return { spec: safeTrim(repoRaw) };
-  }
+function normalizeForProvider(provider: RepoProvider, repoRaw: string) {
+  return REPOSITORY_NORMALIZERS[provider]?.(repoRaw) ?? { spec: safeTrim(repoRaw) };
 }
 
 function providerUsesRef(providerToken: string) {

@@ -111,6 +111,31 @@ const MYBINDER_PROVIDER_MAP: Record<string, { provider: RepoProvider; repoBase?:
   ckan: { provider: "ckan" },
 };
 
+const REF_DISABLED_PROVIDERS: RepoProvider[] = ["zenodo", "figshare", "hydroshare", "dataverse", "ckan"];
+const DOI_BASE_PROVIDERS: RepoProvider[] = ["zenodo", "figshare", "dataverse"];
+
+function providerSupportsRef(provider: RepoProvider) {
+  return !REF_DISABLED_PROVIDERS.includes(provider);
+}
+
+function stripRepoBaseForShareLink(provider: RepoProvider, repo: string) {
+  switch (provider) {
+    case "github":
+      return repo.replace(/^https?:\/\/(www\.)?github\.com\//i, "");
+    case "gitlab":
+      return repo.replace(/^https?:\/\/(www\.)?gitlab\.com\//i, "");
+    case "gist":
+      return repo.replace(/^https?:\/\/gist\.github\.com\//i, "");
+    case "hydroshare":
+      return repo.replace(/^https?:\/\/www\.hydroshare\.org\/resource\//i, "");
+    default:
+      if (DOI_BASE_PROVIDERS.includes(provider)) {
+        return repo.replace(/^https?:\/\/doi\.org\//i, "");
+      }
+      return repo;
+  }
+}
+
 type ShareLinkParseResult =
   | { ok: true; data: ShareLinkParams }
   | { ok: false; error: string };
@@ -160,12 +185,7 @@ function parseMyBinderCookiePayload(): ShareLinkParseResult | null {
     const rawEnv = queryParams.get("env") ?? "";
     const environmentNumber = /^\d+$/.test(rawEnv) && Number(rawEnv) > 0 ? Number(rawEnv) : undefined;
 
-    const refNotApplicable =
-      providerConfig.provider === "zenodo" ||
-      providerConfig.provider === "figshare" ||
-      providerConfig.provider === "hydroshare" ||
-      providerConfig.provider === "dataverse" ||
-      providerConfig.provider === "ckan";
+    const refNotApplicable = !providerSupportsRef(providerConfig.provider);
 
     const repoSegments = refNotApplicable
       ? pathSegments.slice(1)
@@ -253,31 +273,10 @@ function buildPreviewShareLink(params: {
     return "";
   }
 
-  const refNotApplicable =
-    params.provider === "zenodo" ||
-    params.provider === "figshare" ||
-    params.provider === "hydroshare" ||
-    params.provider === "dataverse" ||
-    params.provider === "ckan";
-
+  const refNotApplicable = !providerSupportsRef(params.provider);
   const effectiveRef = refNotApplicable ? "" : rawRef || "HEAD";
 
-  let repoPath = repo;
-  if (params.provider === "github") {
-    repoPath = repoPath.replace(/^https?:\/\/(www\.)?github\.com\//i, "");
-  } else if (params.provider === "gitlab") {
-    repoPath = repoPath.replace(/^https?:\/\/(www\.)?gitlab\.com\//i, "");
-  } else if (params.provider === "gist") {
-    repoPath = repoPath.replace(/^https?:\/\/gist\.github\.com\//i, "");
-  } else if (params.provider === "hydroshare") {
-    repoPath = repoPath.replace(/^https?:\/\/www\.hydroshare\.org\/resource\//i, "");
-  } else if (
-    params.provider === "zenodo" ||
-    params.provider === "figshare" ||
-    params.provider === "dataverse"
-  ) {
-    repoPath = repoPath.replace(/^https?:\/\/doi\.org\//i, "");
-  }
+  const repoPath = stripRepoBaseForShareLink(params.provider, repo);
 
   const encodedRepoPath =
     params.provider === "git" || params.provider === "ckan"
@@ -307,6 +306,7 @@ async function copyTextToClipboard(value: string) {
     return;
   }
 
+  // Fallback for browsers where the async Clipboard API is unavailable.
   const textArea = document.createElement("textarea");
   textArea.value = value;
   textArea.setAttribute("readonly", "true");
