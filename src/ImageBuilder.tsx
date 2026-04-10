@@ -245,6 +245,10 @@ function normalizeForProvider(provider: RepoProvider, repoRaw: string) {
   return REPOSITORY_NORMALIZERS[provider]?.(repoRaw) ?? { spec: safeTrim(repoRaw) };
 }
 
+function encodeBinderSpecSegment(spec: string) {
+  return encodeURIComponent(spec);
+}
+
 function providerUsesRef(providerToken: string) {
   return providerToken === "gh" || providerToken === "gl" || providerToken === "gist" || providerToken === "git";
 }
@@ -252,18 +256,19 @@ function providerUsesRef(providerToken: string) {
 function buildProviderSpec(args: BinderBuildArgs) {
   const providerToken = mapToBinderProvider(args.provider);
   const norm = normalizeForProvider(args.provider, args.repo);
+  const encodedSpec = encodeBinderSpecSegment(norm.spec);
   const refRaw = safeTrim(args.ref);
   const ref = refRaw || "HEAD";
 
   if (providerUsesRef(providerToken)) {
-    return `${providerToken}/${norm.spec}/${ref}`;
+    return `${providerToken}/${encodedSpec}/${ref}`;
   }
 
   if (refRaw) {
-    return `${providerToken}/${norm.spec}/${refRaw}`;
+    return `${providerToken}/${encodedSpec}/${refRaw}`;
   }
 
-  return `${providerToken}/${norm.spec}`;
+  return `${providerToken}/${encodedSpec}`;
 }
 
 async function buildImageFromArgs(
