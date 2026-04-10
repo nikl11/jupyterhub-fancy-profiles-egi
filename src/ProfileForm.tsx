@@ -123,7 +123,7 @@ function stripRepoBaseForShareLink(provider: RepoProvider, repo: string) {
     case "github":
       return repo.replace(/^https?:\/\/(www\.)?github\.com\//i, "");
     case "gitlab":
-      return repo;
+      return repo.replace(/^https?:\/\/(www\.)?gitlab\.com\//i, "");
     case "gist":
       return repo.replace(/^https?:\/\/gist\.github\.com\//i, "");
     case "hydroshare":
