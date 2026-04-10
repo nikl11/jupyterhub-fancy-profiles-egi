@@ -187,9 +187,15 @@ function parseMyBinderCookiePayload(): ShareLinkParseResult | null {
 
     const refNotApplicable = !providerSupportsRef(providerConfig.provider);
 
-    let repoSegments = refNotApplicable
+    const repoSegments = refNotApplicable
       ? pathSegments.slice(1)
       : pathSegments.slice(1, Math.max(pathSegments.length - 1, 1));
+
+    const repoSpec = decodeURIComponent(repoSegments.join("/")).trim();
+
+    if (!repoSpec) {
+      return { ok: false, error: "Invalid share link: repository is missing." };
+    }
 
     let rawRef = "";
     if (!refNotApplicable && pathSegments.length >= 3) {
@@ -199,24 +205,16 @@ function parseMyBinderCookiePayload(): ShareLinkParseResult | null {
       }
     }
 
-    if (providerConfig.provider === "gitlab" && repoSegments.length > 0) {
-      const decodedFirstSegment = decodeURIComponent(repoSegments[0]);
-      if (/^https?:\/\//i.test(decodedFirstSegment)) {
-        repoSegments = [decodeURIComponent(repoSegments.join("/"))];
-      }
-    }
-
-    const repoSpec = decodeURIComponent(repoSegments.join("/")).trim();
-
-    if (!repoSpec) {
-      return { ok: false, error: "Invalid share link: repository is missing." };
-    }
-
     let urlpath = decodeURIComponent(queryParams.get("urlpath") ?? "").trim();
     urlpath = urlpath.replace(/^\/+/, "");
     urlpath = urlpath.replace(/^doc\/tree\//, "");
 
-    const repo = providerConfig.repoBase ? `${providerConfig.repoBase}/${repoSpec}` : repoSpec;
+    const repo =
+      providerConfig.provider === "gitlab" && /^https?:\/\//i.test(repoSpec)
+        ? repoSpec
+        : providerConfig.repoBase
+          ? `${providerConfig.repoBase}/${repoSpec}`
+          : repoSpec;
 
     return {
       ok: true,
