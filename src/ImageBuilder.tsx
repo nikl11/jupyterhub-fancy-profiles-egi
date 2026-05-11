@@ -1,8 +1,9 @@
+import * as React from "react";
 import { useEffect, useState, useRef, useContext, useMemo, KeyboardEventHandler } from "react";
 import { type Terminal } from "xterm";
 import { type FitAddon } from "xterm-addon-fit";
 
-import useRepositoryField from "./hooks/useRepositoryField";
+import useRepositoryField, { type RepoProvider } from "./hooks/useRepositoryField";
 import Combobox from "./components/form/Combobox";
 import useFormCache from "./hooks/useFormCache";
 import { PermalinkContext } from "./context/Permalink";
@@ -10,14 +11,37 @@ import { ICustomOptionProps } from "./types/fields";
 
 const TOKEN_KEY = "jupytherhub-build-token";
 
-async function getApiToken () {
+export type BinderBuildArgs = {
+  provider: RepoProvider;
+  repo: string;
+  ref: string;
+  subdir: string;
+};
+
+export type BinderBuildState = {
+  status: "idle" | "building" | "done" | "error";
+  logs: string;
+  logsOpen: boolean;
+  error: string | null;
+  imageName: string | null;
+};
+
+export type BinderBuildControls = {
+  startBuild: (args: BinderBuildArgs) => void;
+  toggleLogs: () => void;
+  openLogs: () => void;
+  closeLogs: () => void;
+  reset: () => void;
+};
+
+async function getApiToken() {
   const xsrfToken = (`; ${document.cookie}`).split("; _xsrf=").pop().split(";")[0];
   const userResponse = await fetch(`/hub/api/user?_xsrf=${xsrfToken}`);
   const { name } = await userResponse.json();
 
-  const exisitingToken = localStorage.getItem(TOKEN_KEY);
-  if (exisitingToken) {
-    const { id, expires_at, token } = JSON.parse(exisitingToken);
+  const existingToken = localStorage.getItem(TOKEN_KEY);
+  if (existingToken) {
+    const { id, expires_at, token } = JSON.parse(existingToken);
     const expiryDate = Date.parse(expires_at);
     const isExpired = expiryDate < new Date().getTime();
 
@@ -49,61 +73,248 @@ async function getApiToken () {
   return res.token;
 }
 
-async function buildImage(
-  repo: string,
-  ref: string,
-  term: Terminal,
-  fitAddon: FitAddon,
+function safeTrim(s: string) {
+  return (s ?? "").trim();
+}
+
+function stripTrailingSlash(s: string) {
+  return s.replace(/\/+$/, "");
+}
+
+function stripGitSuffix(s: string) {
+  return s.replace(/\.git$/i, "");
+}
+
+function tryParseUrl(s: string): URL | null {
+  try {
+    return new URL(s);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeGithub(input: string): { spec: string } {
+  const raw = stripTrailingSlash(safeTrim(input));
+  const u = tryParseUrl(raw);
+
+  if (!u) {
+    const parts = raw.split("/").filter(Boolean);
+    if (parts.length >= 2) return { spec: `${parts[0]}/${stripGitSuffix(parts[1])}` };
+    return { spec: raw };
+  }
+
+  const parts = u.pathname.split("/").filter(Boolean);
+  if (parts.length >= 2) return { spec: `${parts[0]}/${stripGitSuffix(parts[1])}` };
+  return { spec: raw };
+}
+
+function normalizeGitlab(input: string): { spec: string } {
+  const raw = stripTrailingSlash(safeTrim(input));
+  const u = tryParseUrl(raw);
+
+  if (!u) return { spec: stripGitSuffix(raw.replace(/^\/+/, "")) };
+
+  const parts = u.pathname.split("/").filter(Boolean);
+  const dashIdx = parts.indexOf("-");
+  const useful = dashIdx >= 0 ? parts.slice(0, dashIdx) : parts;
+  return { spec: useful.map((p) => stripGitSuffix(p)).join("/") };
+}
+
+function normalizeGist(input: string): { spec: string } {
+  const raw = stripTrailingSlash(safeTrim(input));
+  const u = tryParseUrl(raw);
+
+  if (!u) {
+    const parts = raw.split("/").filter(Boolean);
+    return { spec: parts[parts.length - 1] ?? raw };
+  }
+
+  const parts = u.pathname.split("/").filter(Boolean);
+  return { spec: parts[parts.length - 1] ?? raw };
+}
+
+function normalizeZenodo(input: string): { spec: string } {
+  const raw = stripTrailingSlash(safeTrim(input));
+  const u = tryParseUrl(raw);
+
+  const candidate = u
+    ? stripTrailingSlash(
+      `${u.host}${u.pathname}`.replace(/^doi\.org\//i, "").replace(/^dx\.doi\.org\//i, ""),
+    )
+    : raw;
+
+  const doiMatch = candidate.match(/(10\.\d+\/zenodo\.\d+)/i);
+  if (doiMatch) return { spec: doiMatch[1] };
+
+  const direct = raw.match(/(10\.\d+\/zenodo\.\d+)/i);
+  if (direct) return { spec: direct[1] };
+
+  return { spec: raw };
+}
+
+function normalizeFigshare(input: string): { spec: string } {
+  const raw = stripTrailingSlash(safeTrim(input));
+  const u = tryParseUrl(raw);
+
+  if (u) {
+    const host = u.host.toLowerCase();
+    if (host.includes("doi.org") || host.includes("dx.doi.org")) {
+      const m = u.pathname.match(/(10\.\d+\/.+)/);
+      if (m) return { spec: m[1].replace(/^\/+/, "") };
+    }
+  }
+
+  const doi = raw.match(/(10\.\d+\/.+)/);
+  if (doi) return { spec: doi[1] };
+
+  return { spec: raw };
+}
+
+function normalizeHydroshare(input: string): { spec: string } {
+  const raw = stripTrailingSlash(safeTrim(input));
+  const u = tryParseUrl(raw);
+
+  if (u) {
+    const m = u.pathname.match(/\/resource\/([0-9a-fA-F-]{10,})/);
+    if (m) return { spec: m[1] };
+  }
+
+  return { spec: raw };
+}
+
+function normalizeDataverse(input: string): { spec: string } {
+  const raw = stripTrailingSlash(safeTrim(input));
+  const u = tryParseUrl(raw);
+
+  if (u) {
+    const pid = u.searchParams.get("persistentId");
+    if (pid) return { spec: pid.replace(/\s+/g, "") };
+  }
+
+  const doiWithPrefixMatch = raw.match(/(doi:\s*10\.\d+\/\S+)/i);
+  if (doiWithPrefixMatch) return { spec: doiWithPrefixMatch[1].replace(/\s+/g, "") };
+
+  const plainDoiMatch = raw.match(/(10\.\d+\/\S+)/);
+  if (plainDoiMatch) return { spec: plainDoiMatch[1] };
+
+  return { spec: raw };
+}
+
+function normalizeCkan(input: string): { spec: string } {
+  const raw = stripTrailingSlash(safeTrim(input));
+  const u = tryParseUrl(raw);
+  if (u) return { spec: stripTrailingSlash(u.toString()) };
+  return { spec: raw };
+}
+
+function normalizeGit(input: string): { spec: string } {
+  const raw = stripTrailingSlash(safeTrim(input));
+  if (/^https?:\/\//i.test(raw)) return { spec: stripTrailingSlash(raw) };
+  return { spec: raw };
+}
+
+const BINDER_PROVIDER_MAP: Record<RepoProvider, string> = {
+  github: "gh",
+  gitlab: "gl",
+  gist: "gist",
+  zenodo: "zenodo",
+  figshare: "figshare",
+  hydroshare: "hydroshare",
+  dataverse: "dataverse",
+  ckan: "ckan",
+  git: "git",
+};
+
+const REPOSITORY_NORMALIZERS: Record<RepoProvider, (repoRaw: string) => { spec: string }> = {
+  github: normalizeGithub,
+  gitlab: normalizeGitlab,
+  gist: normalizeGist,
+  zenodo: normalizeZenodo,
+  figshare: normalizeFigshare,
+  hydroshare: normalizeHydroshare,
+  dataverse: normalizeDataverse,
+  ckan: normalizeCkan,
+  git: normalizeGit,
+};
+
+function mapToBinderProvider(provider: RepoProvider): string {
+  return BINDER_PROVIDER_MAP[provider] ?? "gh";
+}
+
+function normalizeForProvider(provider: RepoProvider, repoRaw: string) {
+  return REPOSITORY_NORMALIZERS[provider]?.(repoRaw) ?? { spec: safeTrim(repoRaw) };
+}
+
+function encodeBinderSpecSegment(spec: string) {
+  return encodeURIComponent(spec);
+}
+
+function providerUsesRef(providerToken: string) {
+  return providerToken === "gh" || providerToken === "gl" || providerToken === "gist" || providerToken === "git";
+}
+
+function buildProviderSpec(args: BinderBuildArgs) {
+  const providerToken = mapToBinderProvider(args.provider);
+  const norm = normalizeForProvider(args.provider, args.repo);
+  const encodedSpec = encodeBinderSpecSegment(norm.spec);
+  const refRaw = safeTrim(args.ref);
+  const ref = refRaw || "HEAD";
+
+  if (providerUsesRef(providerToken)) {
+    return `${providerToken}/${encodedSpec}/${ref}`;
+  }
+
+  if (refRaw) {
+    return `${providerToken}/${encodedSpec}/${refRaw}`;
+  }
+
+  return `${providerToken}/${encodedSpec}`;
+}
+
+async function buildImageFromArgs(
+  args: BinderBuildArgs,
+  onLog: (chunk: string) => void,
 ) {
   const apiToken = await getApiToken();
 
   // @ts-expect-error - v0.5.0 client types not available
   const { BinderRepository } = await import("@jupyterhub/binderhub-client/client.js");
-  const providerSpec = "gh/" + repo + "/" + ref;
-  // FIXME: Assume the binder api is available in the same hostname, under /services/binder/
+  const providerSpec = buildProviderSpec(args);
   const buildEndPointURL = new URL(
     "/services/binder/build/",
     window.location.origin,
   );
 
-  // Use new v0.5.0 API with options object - only apiToken needed for auth
+  if (safeTrim(args.subdir)) {
+    buildEndPointURL.searchParams.set("subdir", safeTrim(args.subdir));
+  }
+
   const image = new BinderRepository(
     providerSpec,
     buildEndPointURL,
     {
-      apiToken,     // JupyterHub API token for Authorization header
+      apiToken,
       buildOnly: true,
     }
   );
-  // Clear the last line written, so we start from scratch
-  term.write("\x1b[2K\r");
-  term.resize(66, 16);
-  fitAddon.fit();
 
   for await (const data of image.fetch()) {
-    // Write message to the log terminal if there is a message
     if (data.message !== undefined) {
-      // Write out all messages to the terminal!
-      term.write(data.message);
-      // Resize our terminal to make sure it fits messages appropriately
-      fitAddon.fit();
+      onLog(data.message);
     } else {
-      console.log(data);
+      onLog(`${JSON.stringify(data)}\n`);
     }
 
     switch (data.phase) {
       case "failed": {
         image.close();
-        return Promise.reject();
+        return Promise.reject(new Error(data.message || "Image build failed."));
       }
       case "ready": {
-        // Close the EventStream when the image has been built
         image.close();
         return Promise.resolve(data.imageName);
       }
       default: {
-        console.log("Unknown phase in response from server");
-        console.log(data);
         break;
       }
     }
@@ -159,11 +370,16 @@ function ImageLogs({ setTerm, setFitAddon, name }: IImageLogs) {
   );
 }
 
-export function ImageBuilder({ name, isActive, optionKey }: ICustomOptionProps) {
+export function ImageBuilder(props?: Partial<ICustomOptionProps>) {
+  if (!props?.name || props.isActive === undefined || !props.optionKey) {
+    return null;
+  }
+
+  const { name, isActive, optionKey } = props as ICustomOptionProps;
   const { setPermalinkValue, permalinkValues } = useContext(PermalinkContext);
 
   const repoRef = permalinkValues[`${optionKey}:ref`];
-  const binderRepo= permalinkValues[`${optionKey}:binderRepo`];
+  const binderRepo = permalinkValues[`${optionKey}:binderRepo`];
   const { repo, repoId, repoFieldProps, repoError } =
     useRepositoryField(binderRepo);
   const { getRepositoryOptions, getRefOptions, removeRefOption, removeRepositoryOption } = useFormCache();
@@ -228,7 +444,7 @@ export function ImageBuilder({ name, isActive, optionKey }: ICustomOptionProps) 
     }
   };
 
-  // We render everything, but only toggle visibility based on wether we are being
+  // We render everything, but only toggle visibility based on whether we are being
   // shown or hidden. This provides for more DOM stability, and also allows the image
   // to continue being built evn if the user moves away elsewhere. When hidden, we just
   // don't generate the hidden input that posts the built image out.
@@ -299,21 +515,131 @@ export function ImageBuilder({ name, isActive, optionKey }: ICustomOptionProps) 
         style={{ display: "none" }}
         onInvalid={() =>
           setCustomImageError("Wait for the image build to complete.")}
-        onChange={() => {}} // Hack to prevent a console error, while at the same time allowing for this field to be validatable, ie. not making it read-only
+        onChange={() => {}}
       />
-      <div className="profile-option-container">
-        <div className="profile-option-label-container">
-          <b>Build Logs</b>
-        </div>
-        <div className="profile-option-control-container">
-          <ImageLogs setFitAddon={setFitAddon} setTerm={setTerm} name={name} />
-          {customImageError && (
-            <div className="invalid-feedback d-block">
-              {customImageError}
-            </div>
-          )}
-        </div>
-      </div>
+      {customImageError && isActive ? (
+        <div className="field-error">{customImageError}</div>
+      ) : null}
+      <ImageLogs setTerm={setTerm} setFitAddon={setFitAddon} name={name} />
     </>
   );
+}
+
+async function buildImage(
+  repo: string,
+  ref: string,
+  term: Terminal,
+  fitAddon: FitAddon,
+) {
+  const apiToken = await getApiToken();
+
+  const { BinderRepository } = await import("@jupyterhub/binderhub-client/client.js");
+  const providerSpec = "gh/" + repo + "/" + ref;
+  const buildEndPointURL = new URL(
+    "/services/binder/build/",
+    window.location.origin,
+  );
+
+  // Use new v0.5.0 API with options object - only apiToken needed for auth
+  const image = new BinderRepository(
+    providerSpec,
+    buildEndPointURL,
+    {
+      apiToken,     // JupyterHub API token for Authorization header
+      buildOnly: true,
+    }
+  );
+  // Clear the last line written, so we start from scratch
+  term.write("\x1b[2K\r");
+  term.resize(66, 16);
+  fitAddon.fit();
+
+  for await (const data of image.fetch()) {
+    // Write message to the log terminal if there is a message
+    if (data.message !== undefined) {
+      // Write out all messages to the terminal!
+      term.write(data.message);
+      // Resize our terminal to make sure it fits messages appropriately
+      fitAddon.fit();
+    } else {
+      console.log(data);
+    }
+
+    switch (data.phase) {
+      case "failed": {
+        image.close();
+        return Promise.reject();
+      }
+      case "ready": {
+        // Close the EventStream when the image has been built
+        image.close();
+        return Promise.resolve(data.imageName);
+      }
+      default: {
+        console.log("Unknown phase in response from server");
+        console.log(data);
+        break;
+      }
+    }
+  }
+}
+
+export function useBinderBuild(): [BinderBuildState, BinderBuildControls] {
+  const [status, setStatus] = React.useState<BinderBuildState["status"]>("idle");
+  const [logs, setLogs] = React.useState<string>("");
+  const [logsOpen, setLogsOpen] = React.useState<boolean>(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [imageName, setImageName] = React.useState<string | null>(null);
+
+  const buildIdRef = React.useRef(0);
+
+  const reset = React.useCallback(() => {
+    buildIdRef.current += 1;
+    setStatus("idle");
+    setLogs("");
+    setLogsOpen(false);
+    setError(null);
+    setImageName(null);
+  }, []);
+
+  const openLogs = React.useCallback(() => setLogsOpen(true), []);
+  const closeLogs = React.useCallback(() => setLogsOpen(false), []);
+  const toggleLogs = React.useCallback(() => setLogsOpen((v) => !v), []);
+
+  const startBuild = React.useCallback((args: BinderBuildArgs) => {
+    const buildId = buildIdRef.current + 1;
+    buildIdRef.current = buildId;
+
+    setStatus("building");
+    setError(null);
+    setImageName(null);
+    setLogsOpen(true);
+    setLogs("");
+
+    (async () => {
+      try {
+        const builtImage = await buildImageFromArgs(args, (chunk) => {
+          if (buildIdRef.current !== buildId) return;
+          setLogs((previousLogs) => previousLogs + chunk);
+        });
+
+        if (buildIdRef.current !== buildId) return;
+        setImageName(builtImage);
+        setStatus("done");
+        setLogs((previousLogs) => previousLogs + "\nImage has been built! Click the Launch button to start your server\n");
+      } catch (error: unknown) {
+        if (buildIdRef.current !== buildId) return;
+        const message = error instanceof Error ? error.message : String(error);
+
+        setStatus("error");
+        setError(message);
+        setLogs((previousLogs) => previousLogs + `\n[failed] ${message}\n`);
+      }
+    })();
+  }, []);
+
+  return [
+    { status, logs, logsOpen, error, imageName },
+    { startBuild, toggleLogs, openLogs, closeLogs, reset },
+  ];
 }
