@@ -93,9 +93,14 @@ function tryParseUrl(s: string): URL | null {
   }
 }
 
-function normalizeGithub(input: string): { spec: string } {
+function normalizeInput(input: string): { raw: string; u: URL | null } {
   const raw = stripTrailingSlash(safeTrim(input));
   const u = tryParseUrl(raw);
+  return { raw, u };
+}
+
+function normalizeGithub(input: string): { spec: string } {
+  const { raw, u } = normalizeInput(input);
 
   if (!u) {
     const parts = raw.split("/").filter(Boolean);
@@ -109,8 +114,7 @@ function normalizeGithub(input: string): { spec: string } {
 }
 
 function normalizeGitlab(input: string): { spec: string } {
-  const raw = stripTrailingSlash(safeTrim(input));
-  const u = tryParseUrl(raw);
+  const { raw, u } = normalizeInput(input);
 
   if (!u) return { spec: stripGitSuffix(raw.replace(/^\/+/, "")) };
 
@@ -121,8 +125,7 @@ function normalizeGitlab(input: string): { spec: string } {
 }
 
 function normalizeGist(input: string): { spec: string } {
-  const raw = stripTrailingSlash(safeTrim(input));
-  const u = tryParseUrl(raw);
+  const { raw, u } = normalizeInput(input);
 
   if (!u) {
     const parts = raw.split("/").filter(Boolean);
@@ -134,8 +137,7 @@ function normalizeGist(input: string): { spec: string } {
 }
 
 function normalizeZenodo(input: string): { spec: string } {
-  const raw = stripTrailingSlash(safeTrim(input));
-  const u = tryParseUrl(raw);
+  const { raw, u } = normalizeInput(input);
 
   const candidate = u
     ? stripTrailingSlash(
@@ -153,8 +155,7 @@ function normalizeZenodo(input: string): { spec: string } {
 }
 
 function normalizeFigshare(input: string): { spec: string } {
-  const raw = stripTrailingSlash(safeTrim(input));
-  const u = tryParseUrl(raw);
+  const { raw, u } = normalizeInput(input);
 
   if (u) {
     const host = u.host.toLowerCase();
@@ -171,8 +172,7 @@ function normalizeFigshare(input: string): { spec: string } {
 }
 
 function normalizeHydroshare(input: string): { spec: string } {
-  const raw = stripTrailingSlash(safeTrim(input));
-  const u = tryParseUrl(raw);
+  const { raw, u } = normalizeInput(input);
 
   if (u) {
     const m = u.pathname.match(/\/resource\/([0-9a-fA-F-]{10,})/);
@@ -183,8 +183,7 @@ function normalizeHydroshare(input: string): { spec: string } {
 }
 
 function normalizeDataverse(input: string): { spec: string } {
-  const raw = stripTrailingSlash(safeTrim(input));
-  const u = tryParseUrl(raw);
+  const { raw, u } = normalizeInput(input);
 
   if (u) {
     const pid = u.searchParams.get("persistentId");
@@ -201,8 +200,7 @@ function normalizeDataverse(input: string): { spec: string } {
 }
 
 function normalizeCkan(input: string): { spec: string } {
-  const raw = stripTrailingSlash(safeTrim(input));
-  const u = tryParseUrl(raw);
+  const { raw, u } = normalizeInput(input);
   if (u) return { spec: stripTrailingSlash(u.toString()) };
   return { spec: raw };
 }
