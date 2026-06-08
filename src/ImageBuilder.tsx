@@ -1,4 +1,4 @@
-import * as React from "react";
+import React from 'react';
 import { useEffect, useState, useRef, useContext, useMemo, KeyboardEventHandler } from "react";
 import { type Terminal } from "xterm";
 import { type FitAddon } from "xterm-addon-fit";

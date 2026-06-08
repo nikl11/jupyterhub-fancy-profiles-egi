@@ -1,4 +1,4 @@
-import * as React from "react";
+import React from 'react';
 import { useBinderBuild } from "./ImageBuilder";
 import { useRepositoryField, RepoProvider } from "./hooks/useRepositoryField";
 

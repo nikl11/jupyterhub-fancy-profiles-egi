@@ -1,4 +1,4 @@
-import * as React from "react";
+import React from 'react';
 import { ImageBuilder } from "./ImageBuilder";
 
 type Props = {
